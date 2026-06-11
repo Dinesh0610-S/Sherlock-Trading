@@ -1053,51 +1053,6 @@ export default function MorningBrief() {
             return (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-slate-300 font-sans leading-relaxed tracking-wide">
                 
-                {/* Row 1: Directives (full-width) */}
-                <div className="col-span-full ds-card shadow-lg shadow-black/25">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-                    <span className="text-xs uppercase font-mono font-bold tracking-wider ds-value--gold flex items-center gap-1.5">
-                      <span>🛡️</span> The One Trade Framework Directives
-                    </span>
-                    <span className="text-[10px] uppercase font-mono text-slate-500 font-bold">SYSTEM GATEWAY STATUS: ONLINE</span>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="m-card" style={{ borderColor: 'rgba(245, 158, 11, 0.3)', background: '#141722', padding: 14 }}>
-                      <div className="m-label-row">
-                        <span className="ds-value--gold font-mono font-bold">🎯 ONE TRADE PER DAY LIMIT</span>
-                      </div>
-                      <p className="text-xs text-slate-300 leading-relaxed mt-2 whitespace-pre-line break-words">
-                        The gate locks permanently after 1 position. No re-entries, averaging, or second chances.
-                      </p>
-                      <div className="m-sub-row mt-2">
-                        <span className="text-[9px] uppercase font-mono ds-value--gold opacity-80 font-bold">Priority: Critical</span>
-                      </div>
-                    </div>
-                    <div className="m-card" style={{ borderColor: 'rgba(16, 185, 129, 0.3)', background: '#141722', padding: 14 }}>
-                      <div className="m-label-row">
-                        <span className="text-emerald-500 font-mono font-bold">📈 MINIMUM 90% SETUP QUALITY</span>
-                      </div>
-                      <p className="text-xs text-slate-300 leading-relaxed mt-2 whitespace-pre-line break-words">
-                        Only setups crossing the 90-point checklist threshold are authorized. STAND DOWN if score is lower.
-                      </p>
-                      <div className="m-sub-row mt-2">
-                        <span className="text-[9px] uppercase font-mono text-emerald-500/80 font-bold">Priority: High</span>
-                      </div>
-                    </div>
-                    <div className="m-card" style={{ borderColor: 'rgba(239, 68, 68, 0.3)', background: '#141722', padding: 14 }}>
-                      <div className="m-label-row">
-                        <span className="text-rose-500 font-mono font-bold">🛑 ABSOLUTE SPOT COORDINATE INVALIDATION</span>
-                      </div>
-                      <p className="text-xs text-slate-300 leading-relaxed mt-2 whitespace-pre-line break-words">
-                        If spot price breaches invalidation level or 5-min candle closes beyond SL, close position immediately.
-                      </p>
-                      <div className="m-sub-row mt-2">
-                        <span className="text-[9px] uppercase font-mono text-rose-500/80 font-bold">Priority: Immediate</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
                 {/* Row 2: Sub-tab specific markets data */}
                 {briefSubTab === 'global' && (
                   <>

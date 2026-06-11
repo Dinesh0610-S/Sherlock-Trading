@@ -1,0 +1,12 @@
+Created At: 2026-06-08T10:23:52Z
+Completed At: 2026-06-08T10:23:53Z
+
+				The command completed successfully.
+				Output:
+				
+function PreMarketIntel({ selectedAsset = '^NSEI' }) {
+function parseVerdict(text) {
+export default function App() {
+
+
+

@@ -1,0 +1,147 @@
+const VerdictAccuracyTracker = () => {
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/verdict/history')
+      .then(r => r.json())
+      .then(setData)
+      .catch(console.error);
+  }, []);
+
+  if (!data?.stats) return null;
+  const { stats, history } = data;
+  const acc = parseFloat(stats.accuracy);
+
+  return (
+    <div className="accuracy-tracker">
+      <div className="tracker-header">
+        <span className="tracker-title">
+          📈 Sherlock's Track Record
+        </span>
+        <span className="tracker-count">
+          {stats.decidedTrades} verdicts tracked
+        </span>
+      </div>
+
+      {/* Big accuracy number */}
+      <div className="accuracy-display">
+        <div className="accuracy-ring-wrapper">
+          <svg width="90" height="90">
+            <circle cx="45" cy="45" r="35"
+              fill="none"
+              stroke="rgba(255,255,255,0.08)"
+              strokeWidth="6" />
+            <circle cx="45" cy="45" r="35"
+              fill="none"
+              stroke={isNaN(acc) ? 'rgba(255,255,255,0.1)' : (acc >= 70 ? '#00ff88' : acc >= 55 ? '#f5a623' : '#ff4444')}
+              strokeWidth="6"
+              strokeDasharray={isNaN(acc) ? '0 220' : `${(acc/100)*220} 220`}
+              strokeLinecap="round"
+              transform="rotate(-90 45 45)"
+              style={{ transition: 'all 1s ease' }}
+            />
+            <text x="45" y="42" textAnchor="middle"
+              fill={isNaN(acc) ? '#888' : (acc >= 70 ? '#00ff88' : acc >= 55 ? '#f5a623' : '#ff4444')}
+              fontSize="16" fontWeight="bold"
+              fontFamily="Courier New">
+              {stats.accuracy ?? '—'}%
+            </text>
+            <text x="45" y="55" textAnchor="middle"
+              fill="#555" fontSize="8"
+              fontFamily="Courier New">
+              ACCURACY
+            </text>
+          </svg>
+        </div>
+
+        {/* Stats grid */}
+        <div className="stats-grid">
+          <div className="stat-item">
+            <label>STREAK</label>
+            <span className={`value ${
+              stats.streak?.type === 'CORRECT' ? 'green' : 'red'
+            }`}>
+              {stats.streak?.count || 0} {stats.streak?.type === 'CORRECT'
+                ? '✓ wins' : '✗ losses'}
+            </span>
+          </div>
+          <div className="stat-item">
+            <label>AVG PNL</label>
+            <span className={`value ${
+              parseFloat(stats.avgPnlPts) > 0 ? 'green' : 'red'
+            }`}>
+              {stats.avgPnlPts > 0 ? '+' : ''}{stats.avgPnlPts ?? 0} pts
+            </span>
+          </div>
+          <div className="stat-item">
+            <label>BULLISH ACC</label>
+            <span className="value green">
+              {stats.bySignal?.BULLISH?.accuracy ?? '—'}%
+            </span>
+          </div>
+          <div className="stat-item">
+            <label>BEARISH ACC</label>
+            <span className="value red">
+              {stats.bySignal?.BEARISH?.accuracy ?? '—'}%
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Last 10 verdicts */}
+      <div className="verdict-log">
+        <h4 style={{ margin: '12px 0 6px', color: '#f5a623', fontFamily: 'Courier New', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Last 10 Verdicts</h4>
+        <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+          <table className="log-table">
+            <thead>
+              <tr>
+                <th>DATE</th>
+                <th>SIGNAL</th>
+                <th>SPOT</th>
+                <th>CLOSE</th>
+                <th>PNL</th>
+                <th>RESULT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.slice(0, 10).map(v => (
+                <tr key={v.id}>
+                  <td>{new Date(v.date).toLocaleDateString('en-IN')}</td>
+                  <td className={
+                    v.signal === 'BULLISH' ? 'green' :
+                    v.signal === 'BEARISH' ? 'red'   : 'amber'
+                  }>{v.signal}</td>
+                  <td>₹{v.spot?.toLocaleString('en-IN')}</td>
+                  <td>{v.spotAtClose
+                    ? `₹${v.spotAtClose.toLocaleString('en-IN')}`
+                    : '—'}</td>
+                  <td className={
+                    v.pnlPts > 0 ? 'green' :
+                    v.pnlPts < 0 ? 'red'   : ''
+                  }>
+                    {v.pnlPts !== null
+                      ? `${v.pnlPts > 0 ? '+' : ''}${v.pnlPts} pts`
+                      : '—'}
+                  </td>
+                  <td>
+                    {v.outcome === 'CORRECT'   && <span className="outcome correct">✓</span>}
+                    {v.outcome === 'INCORRECT' && <span className="outcome incorrect">✗</span>}
+                    {v.outcome === 'PENDING'   && <span className="outcome pending">⏳</span>}
+                    {v.outcome === 'SKIPPED'   && <span className="outcome skipped">—</span>}
+                    {!v.outcome && <span className="outcome pending">⏳</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {stats.decidedTrades === 0 && (
+          <div className="no-history" style={{ marginTop: '10px' }}>
+            No verdict history yet. History builds automatically after market close.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

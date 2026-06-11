@@ -1,0 +1,135 @@
+<USER_REQUEST>
+Fix 6 critical trading logic errors in the Sherlock Holmes chatbot.
+These errors would cause real money losses if a trader follows the signals.
+Fix every issue listed below exactly as described.
+
+---
+
+### FIX 1: VWAP CALCULATION — MOST CRITICAL
+
+CURRENT BUG:
+  VWAP = spot price (completely wrong)
+  Evidence: Spot ₹23,547.75 = VWAP ₹23,547.75 (identical)
+
+ROOT CAUSE:
+  Backend is setting vwap = quote.lastPrice
+  instead of calculating from intraday candles
+
+DELETE this broken code:
+```javascript
+// WRONG — delete this pattern anywhere it exists:
+const vwap = quote.lastPrice;
+const vwap = currentPrice;
+const vwap = spotPrice;
+indicators.vwap = data.lastPrice;
+```
+
+REPLACE WITH real VWAP calculation:
+
+```javascript
+// server.js — Real VWAP Calculator
+async function calculateRealVWAP(symbol) {
+  try {
+    // Fetch today's intraday candles (1-minute)
+    const ySymbol = symbol === 'NIFTY'     ? '^NSEI'  :
+                    symbol === 'BANKNIFTY' ? '^NSEBANK' :
+                    `${symbol}.NS`;
+
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/` +
+                `${encodeURIComponent(ySymbol)}` +
+                `?interval=1m&range=1d`;
+
+    const res  = await axios.get(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+
+    const result    = res.data.chart.result[0];
+    const quotes    = result.indicators.quote[0];
+    const timestamps= result.timestamp;
+
+    // Get IST market open time (9:15 AM)
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istNow    = new Date(now.getTime() + istOffset);
+    const marketOpenIST = new Date(istNow);
+    marketOpenIST.setHours(9, 15, 0, 0);
+    const marketOpenUnix = (marketOpenIST.getTime() - istOffset) / 1000;
+
+    // Filter candles from 9:15 AM onwards only
+    let cumTPV = 0; // cumulative (typical price × volume)
+    let cumVol = 0; // cumulative volume
+
+    timestamps.forEach((ts, i) => {
+      if (ts < marketOpenUnix) return; // skip pre-market
+
+      const high   = quotes.high[i];
+ 
+<truncated 3050 bytes>
+- 25, 10);
+      return {
+        blockedSignal: false,
+        confidence,
+        warning: `⚠ RSI OVERSOLD WARNING: RSI ${rsi} < 30.
+                  Short trade confidence reduced significantly.
+                  High reversal risk. Use strict SL.
+                  Consider half position size only.`
+      };
+    }
+  }
+
+  // EXTREME OVERBOUGHT — block long signals
+  if (rsi > 80) {
+    if (signal === 'BULLISH' || signal === 'LONG') {
+      return {
+        blockedSignal:  true,
+        forcedSignal:   'WAIT',
+        confidence:     0,
+        override:       'RSI_EXTREME_OVERBOUGHT',
+        warning: `🚨 SIGNAL BLOCKED: RSI ${rsi} is EXTREME overbought (> 80).
+                  Buying at this level is very high risk.
+                  Wait for RSI to cool below 70 before entering long.`
+      };
+    }
+  }
+
+  // OVERBOUGHT — reduce long confidence
+  if (rsi >= 70 && rsi <= 80) {
+    if (signal === 'BULLISH' || signal === 'LONG') {
+      confidence = Math.max(confidence - 20, 10);
+      return {
+        blockedSignal: false,
+        confidence,
+        warning: `⚠ RSI OVERBOUGHT WARNING: RSI ${rsi} > 70.
+                  Long trade confidence reduced.
+                  Consider booking partial profits if already long.`
+      };
+    }
+  }
+
+  return { blockedSignal: false, confidence, warning: null };
+}
+```
+
+ADD to API system prompt:
+CRITICAL RSI RULES — NEVER VIOLATE:
+IF RSI < 25:
+NEVER recommend SHORT or BEARISH trade
+Instead say: "RSI {value} is EXTREME OVERSOLD.
+Signal BLOCKED. Recommend: WAIT for RSI > 35.
+Alternative: Look for LONG bounce if price holds support."
+Set confidence = 0, signal = WAIT
+IF RSI 25-30:
+SHORT signals allowed but with WARNING
+Reduce confidence by 25%
+Recommend half position size
+Tighter SL mandatory
+IF RSI > 80:
+NEVER recommend LONG or BULLISH trade
+Signal BLOCKED. Wait for RSI < 70.
+IF RSI 70-80:
+LONG signals allowed but with WARNING
+Reduce confidence by 20%
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-05-30T09:26:15+05:30.
+</ADDITIONAL_METADATA>

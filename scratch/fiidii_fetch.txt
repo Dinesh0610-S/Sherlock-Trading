@@ -1,0 +1,111 @@
+3120:       minimumFractionDigits: decimals,
+3121:       maximumFractionDigits: decimals
+3122:     });
+3123:   };
+3124: 
+3125:   // Fetch FII/DII Flows From Backend
+3126:   const fetchFiiDii = async () => {
+3127:     setLoadingFiiDii(true);
+3128:     setFiiDiiError(null);
+3129:     try {
+3130:       // Fetch Sector Flow
+3131:       try {
+3132:         const sectorRes = await fetch(`/api/nse/sector-flow?_t=${Date.now()}`);
+3133:         if (sectorRes.ok) {
+3134:           const sectorData = await sectorRes.json();
+3135:           setFiiDiiSectorFlow(sectorData);
+3136:         }
+3137:       } catch (secErr) {
+3138:         console.warn('Sector flow fetch failed:', secErr);
+3139:       }
+3140: 
+3141:       // 1. Fetch Today's Flow (enriched API response)
+3142:       const todayRes = await fetch(`/api/fiidii/today?_t=${Date.now()}`);
+3143:       if (!todayRes.ok) {
+3144:         throw new Error('Live FII/DII data unavailable — NSE session expired. Retrying...');
+3145:       }
+3146:       const todayData = await todayRes.json();
+3147:       if (todayData.error) {
+3148:         throw new Error(todayData.message || 'Live FII/DII data unavailable — NSE session expired. Retrying...');
+3149:       }
+3150: 
+3151:       // Store enriched today object (has alignment, formatted values, is_today, etc.)
+3152:       setFiiDiiToday(todayData);
+3153:       setFiiDiiLastFetch(new Date());
+3154: 
+3155:       // 2. Fetch History
+3156:       let historyData = [];
+3157:       try {
+3158:         const historyRes = await fetch(`/api/fiidii/history?_t=${Date.now()}`);
+3159:         if (historyRes.ok) {
+3160:           const rawHistory = await historyRes.json();
+3161:           if (Array.isArray(rawHistory)) {
+3162:             historyData = rawHistory.map(item => {
+3163:               const fBuy  = parseFloat(item.fii_buy  || item.fiiBuy  || item.buyValue  || 0);
+3164:               const fSell = parseFloat(item.fii_sell || item.fiiSell || item.sellValue || 0);
+3165:               const fNet  = parseFloat(item.fii_net  || item.fiiNet  || item.netValue  || (fBuy - fSell));
+3166:               const dBuy  = parseFloat(item.dii_buy  || item.diiBuy  || item.buyValue  || 0);
+3167:               const dSell = parseFloat(item.dii_sell || item.diiSell || item.sellValue || 0);
+3168:               const dNet  = parseFloat(item.dii_net  || item.diiNet  || item.netValue  || (dBuy - dSell));
+3169:               return {
+3170:                 date: item.date || item.tradeDate || '',
+3171:                 fii_buy: fBuy, fii_sell: fSell, fii_net: fNet,
+3172:                 dii_buy: dBuy, dii_sell: dSell, dii_net: dNet
+3173:               };
+3174:             }).filter(item => item.date);
+3175:           }
+3176:         }
+3177:       } catch (histErr) {
+3178:         console.warn('History fetch failed, using today only:', histErr);
+3179:       }
+3180: 
+3181:       // 3. Build combined array for trend chart (today + history)
+3182:       const todayMapped = {
+3183:         date:     todayData.date,
+3184:         fii_buy:  todayData.fii.buy,
+3185:         fii_sell: todayData.fii.sell,
+3186:         fii_net:  todayData.fii.net,
+3187:         dii_buy:  todayData.dii.buy,
+3188:         dii_sell: todayData.dii.sell,
+3189:         dii_net:  todayData.dii.net,
+3190:         isToday:  true
+3191:       };
+3192:       const filteredHistory = historyData.filter(item => item.date !== todayMapped.date);
+3193:       setFiiDiiData([todayMapped, ...filteredHistory]);
+3194:       setFiiDiiLastCachedTime(todayData.last_updated || new Date().toLocaleTimeString('en-IN'));
+3195:       setFiiDiiError(null);
+3196:     } catch (e) {
+3197:       console.error('Error fetching FII/DII flows:', e);
+3198:       setFiiDiiError(e.message || 'Live FII/DII data unavailable — NSE session expired. Retrying...');
+3199:     } finally {
+3200:       setLoadingFiiDii(false);
+3201:     }
+3202:   };
+3203: 
+3204:   const [fiiDiiAnalysisTime, setFiiDiiAnalysisTime] = useState(null);
+3205: 
+3206:   // Run FII/DII AI Flow Analysis
+3207:   const handleAnalyzeFiiDii = async () => {
+3208:     if (fiiDiiData.length === 0) return;
+3209:     
+3210:     // Cache check (30 minutes)
+3211:     if (fiiDiiAnalysis && fiiDiiAnalysisTime && (Date.now() - fiiDiiAnalysisTime < 30 * 60 * 1000)) {
+3212:       console.log("[FII/DII] Using cached AI verdict (30 min cache)");
+3213:       return;
+3214:     }
+3215: 
+3216:     setAnalyzingFiiDii(true);
+3217:     try {
+3218:       const todayFlow = fiiDiiData[0];
+3219:       const res = await fetch('/api/fii-dii/analyze', {
+3220:         method: 'POST',
+3221:         headers: { 'Content-Type': 'application/json' },
+3222:         body: JSON.stringify({
+3223:           fii_buy: todayFlow.fii_buy,
+3224:           fii_sell: todayFlow.fii_sell,
+3225:           dii_buy: todayFlow.dii_buy,
+3226:           dii_sell: todayFlow.dii_sell,
+3227:           history: fiiDiiData.slice(1)
+3228:         })
+3229:       });
+3230:       if (res.ok) {

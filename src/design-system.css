@@ -1,0 +1,76 @@
+/* Standardise all repeated inline style patterns into classes */
+/* Goal: remove inline style={} for anything non-dynamic */
+
+/* Card — replaces repeated background/border inline styles */
+.ds-card {
+  background:    var(--card-bg, #0F1117);
+  border:        1px solid var(--card-border, #1E2230);
+  border-radius: 6px;
+  padding:       14px;
+}
+
+.ds-card--bullish { border-color: #00FF88; }
+.ds-card--bearish { border-color: #FF4444; }
+.ds-card--warning { border-color: #FFB800; }
+.ds-card--neutral { border-color: #333;    }
+
+/* Metric value — replaces repeated font/color inline styles */
+.ds-value         { font-family: 'JetBrains Mono', monospace; font-size: 20px; }
+.ds-value--green  { color: #00FF88; }
+.ds-value--red    { color: #FF4444; }
+.ds-value--gold   { color: #FFB800; }
+.ds-value--muted  { color: #666;    }
+
+/* Label */
+.ds-label {
+  font-size:      10px;
+  letter-spacing: 1px;
+  color:          #555;
+  text-transform: uppercase;
+  font-family:    'JetBrains Mono', monospace;
+}
+
+/* Badge */
+.ds-badge {
+  display:       inline-flex;
+  align-items:   center;
+  padding:       2px 8px;
+  border-radius: 3px;
+  font-size:     10px;
+  font-weight:   bold;
+  font-family:   'JetBrains Mono', monospace;
+}
+.ds-badge--ce     { background: rgba(0,255,136,0.15); color: #00FF88; }
+.ds-badge--pe     { background: rgba(255,68,68,0.15);  color: #FF4444; }
+.ds-badge--avoid  { background: rgba(136,136,136,0.15);color: #888;    }
+.ds-badge--live   { background: rgba(0,255,136,0.1);   color: #00FF88; 
+                    animation: ds-pulse 2s infinite; }
+
+/* Skeleton loading pulse */
+.ds-skeleton {
+  background:         linear-gradient(90deg, #111 25%, #1a1a2e 50%, #111 75%);
+  background-size:    200% 100%;
+  animation:          ds-skeleton-shimmer 1.4s infinite;
+  border-radius:      4px;
+  display:            inline-block;
+}
+@keyframes ds-skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes ds-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Freshness dot */
+.ds-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 4px;
+}
+.ds-dot--live   { background: #00FF88; animation: ds-pulse 1.5s infinite; }
+.ds-dot--stale  { background: #FFB800; }
+.ds-dot--dead   { background: #FF4444; }

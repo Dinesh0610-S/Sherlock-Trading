@@ -1,0 +1,119 @@
+<USER_REQUEST>
+Fix exactly these 4 issues. Zero scope creep. Zero other changes.
+
+─────────────────────────────────────────────────────────
+FIX 1: NIFTY 50 EXPIRY — TUESDAY (not Thursday)
+─────────────────────────────────────────────────────────
+Nifty 50 weekly expiry is TUESDAY. BankNifty is WEDNESDAY. 
+FinNifty is TUESDAY. Sensex is FRIDAY. MidcpNifty is MONDAY.
+
+FIND AND REPLACE every expiry reference in codebase:
+
+```typescript
+// DELETE this wrong mapping:
+const EXPIRY_DAY = { NIFTY: 4, BANKNIFTY: 4 }; // Thursday=4 WRONG
+
+// REPLACE WITH correct NSE expiry calendar:
+const EXPIRY_DAYS: Record<string, number> = {
+  'NIFTY':      2,  // Tuesday  (NSE changed from Thursday, effective 2024)
+  'BANKNIFTY':  3,  // Wednesday
+  'FINNIFTY':   2,  // Tuesday
+  'MIDCPNIFTY': 1,  // Monday
+  'SENSEX':     5,  // Friday (BSE)
+  'BANKEX':     1,  // Monday (BSE)
+};
+
+// DTE calculator — finds next expiry from today:
+function getNextExpiry(instrument: string): { date: Date; dte: number; label: string } {
+  const today = new Date();
+  const todayDay = today.getDay(); // 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
+  const expiryDay = EXPIRY_DAYS[instrument] ?? 2;
+  
+  let daysUntil = (expiryDay - todayDay + 7) % 7;
+  
+  // If today IS expiry day:
+  // Before 3:30 PM IST → today is still current expiry
+  // After 3:30 PM IST → next week's expiry
+  if (daysUntil === 0) {
+    const nowIST = new Date(today.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const marketClose = new Date(nowIST);
+    marketClose.setHours(15, 30, 0, 0);
+    if (nowIST > marketClose) daysUntil = 7; // expired today, use next week
+  }
+  
+  // Skip if expiry falls on NSE holiday (add holiday list):
+  const NSE_HOLIDAYS_2025 = [
+    '2025-01-26','2025-03-14','2025-04-14','2025-04-18',
+    '2025-05-01','2025-08-15',
+<truncated 21086 bytes>
+;
+  
+  // Stream response token by token:
+  return streamToUI(response);
+}
+
+// Streaming handler — typewriter effect:
+async function streamToUI(response: Response): Promise<string> {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let fullText = '';
+  
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    
+    const chunk = decoder.decode(value);
+    const lines = chunk.split('\n').filter(l => l.startsWith('data: '));
+    
+    for (const line of lines) {
+      try {
+        const data = JSON.parse(line.slice(6));
+        if (data.type === 'content_block_delta' && data.delta?.text) {
+          fullText += data.delta.text;
+          // Update UI token by token:
+          setChatResponse(prev => prev + data.delta.text);
+        }
+      } catch {}
+    }
+  }
+  return fullText;
+}
+
+// REMOVE all static response maps like:
+// const STATIC_RESPONSES = { 'what is pcr': '...', ... }  ← DELETE ALL
+
+// REMOVE all keyword matching like:
+// if (message.includes('pcr')) return staticPCRExplanation;  ← DELETE ALL
+
+// Every single message now goes through getHolmesResponse()
+// with live market data injected — no exceptions
+```
+
+Market context injection (refresh every 30s):
+```typescript
+function buildMarketContext(): MarketContext {
+  return {
+    timestamp: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+    activeSymbol,
+    ltp, vwap, change, changePercent,
+    dayHigh, dayLow,
+    pcr, maxPain,
+    ivPercentile,
+    niftyExpiry: getNextExpiry('NIFTY'),   // now shows Tuesday correctly
+    bankNiftyExpiry: getNextExpiry('BANKNIFTY'),
+    confidenceScore: deepScore.score,
+    grade: deepScore.grade,
+    topPattern: patterns[0]?.name ?? 'None detected',
+    multiTFConsensus,
+    vix,
+    fiiFlow,
+    sectorMap,
+    // Include last 30-min strategy if generated:
+    currentStrategy: current30mStrategy ?? null,
+  };
+}
+```
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-06-03T23:59:24+05:30.
+</ADDITIONAL_METADATA>

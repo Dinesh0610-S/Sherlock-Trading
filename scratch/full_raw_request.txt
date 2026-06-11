@@ -1,0 +1,147 @@
+<USER_REQUEST>
+Transform every page of the Sherlock Holmes Trading Engine into a 
+TOP 1% TRADER level research tool. 
+
+CORE PHILOSOPHY:
+  One trade per day maximum.
+  Never enter without 90%+ confidence.
+  Every trade must have institutional-grade justification.
+  If no A+ setup exists — the recommendation is "NO TRADE TODAY".
+
+Apply these upgrades to EACH page separately.
+
+---
+
+### PAGE 1: CLUE BOARD — Deep Market Scanner
+
+CURRENT: Shows basic RSI, EMA, VWAP cards
+UPGRADE TO TOP 1%:
+
+```javascript
+// Enhanced Clue Board analysis
+async function generateDeepClueBoard(symbol) {
+
+  // Fetch 7 data sources simultaneously
+  const [
+    quote, optionChain, fiiDii,
+    deliveryData, bulkDeals,
+    indiaVix, globalCues
+  ] = await Promise.all([
+    fetchLiveQuote(symbol),
+    fetchOptionChain(symbol),
+    fetchFIIToday(),
+    fetchDeliveryPercent(symbol),   // NEW
+    fetchBulkBlockDeals(symbol),    // NEW
+    fetchIndiaVIX(),
+    fetchGlobalCues()
+  ]);
+
+  // 12-point institutional checklist
+  const checklist = [
+    {
+      factor:  'Trend Alignment',
+      check:   isEMATrendAligned(quote, indicators),
+      weight:  15,
+      detail:  `EMA9 ₹${indicators.ema9} vs EMA21 ₹${indicators.ema21} 
+                vs EMA50 ₹${indicators.ema50}`
+    },
+    {
+      factor:  'Volume Confirmation',
+      check:   quote.volume > indicators.avgVolume20d * 1.2,
+      weight:  10,
+      detail:  `Today: ${quote.volume} vs 20d avg: ${indicators.avgVolume20d}`
+    },
+    {
+      factor:  'VWAP Position',
+      check:   indicators.vwapValid && quote.lastPrice > indicators.vwap,
+      weight:  10,
+      detail:  `Price ₹${quote.lastPrice} vs VWAP ₹${indicators.vwap}`
+    },
+    {
+      factor:  'OI Buildup Pattern',
+      check:   optionChain.dominantPattern === 'LONG_BUILDUP' ||
+               optionChain.dominantPattern === 'SHORT_COVER',
+      weight:  15,
+      detail:  `Pattern: ${optionChain.dominantPattern} | 
+                PCR: ${optionChain.pcr}`
+    },
+    {
+      factor:  'FII Smart Money',
+      check:   fiiD
+<truncated 25486 bytes>
+ Volume confirming direction
+  If ANY check fails — downgrade recommendation.
+  If 3+ checks fail — "NO TRADE TODAY"
+`;
+```
+
+---
+
+### GLOBAL RULE — ONE TRADE PER DAY ENFORCEMENT
+
+Add this to EVERY page that generates signals:
+
+```javascript
+// TradeGate.js — enforced across all pages
+
+class OneTradePerdayGate {
+  constructor() {
+    this.todaysTrade = null;
+    this.date = null;
+  }
+
+  canTrade() {
+    const today = new Date().toDateString();
+    if (this.date !== today) {
+      this.todaysTrade = null;
+      this.date = today;
+    }
+    return this.todaysTrade === null;
+  }
+
+  recordTrade(trade) {
+    this.todaysTrade = { ...trade, recordedAt: new Date() };
+    // Store in localStorage for persistence
+    localStorage.setItem('todaysTrade', JSON.stringify(this.todaysTrade));
+  }
+
+  getTodaysTrade() {
+    return this.todaysTrade;
+  }
+}
+
+// Show on every page when trade exists:
+{!gate.canTrade() && (
+  <div className="trade-taken-banner">
+    🎯 TODAY'S TRADE ALREADY PLACED
+    <span>{gate.getTodaysTrade()?.instrument}</span>
+    <span>Entry: ₹{gate.getTodaysTrade()?.entry}</span>
+    <span>Status: {gate.getTodaysTrade()?.status}</span>
+    No new analysis needed until tomorrow.
+  </div>
+)}
+```
+
+---
+
+### SUMMARY — TOP 1% STANDARDS APPLIED
+
+Each page now follows institutional protocol:
+
+| Page | Key Upgrade |
+|------|-------------|
+| Clue Board | 12-point institutional checklist |
+| Sherlock Verdict | 5-layer analysis + NO TRADE option |
+| RR Calculator | Kelly Criterion + MAE/MFE scenarios |
+| Option Intelligence | IV Rank + Smart money detection |
+| Trade Journal | Setup grading + adherence score |
+| FII/DII Flow | Pattern recognition + sector flow |
+| Morning Brief | 12-source pre-market war room |
+| Pre-Market Intel | Confidence gate + Go/No-Go |
+| Backtester | Sharpe ratio + institutional stats |
+| Sherlock Bot | 5-step analysis mandate |
+| ALL PAGES | One Trade Per Day enforcement |
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-05-31T12:04:50+05:30.
+</ADDITIONAL_METADATA>

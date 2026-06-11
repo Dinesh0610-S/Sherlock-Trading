@@ -1,0 +1,336 @@
+5515:         {activeTab === 'fiiDii' && (
+5516:           <div>
+5517:             <div className="card" style={{ marginBottom: 16 }}>
+5518:               <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+5519:                 <div className="card-title">💰 FII/DII Daily Flow Panel</div>
+5520:                 <div style={{ display: 'flex', gap: 8 }}>
+5521:                   <button
+5522:                     className={`btn btn-sm ${fiiDiiActiveSubTab === 'today' ? 'btn-gold' : 'btn-secondary'}`}
+5523:                     onClick={() => setFiiDiiActiveSubTab('today')}
+5524:                   >
+5525:                     Today's flow
+5526:                   </button>
+5527:                   <button
+5528:                     className={`btn btn-sm ${fiiDiiActiveSubTab === 'trend' ? 'btn-gold' : 'btn-secondary'}`}
+5529:                     onClick={() => setFiiDiiActiveSubTab('trend')}
+5530:                   >
+5531:                     30-day trend
+5532:                   </button>
+5533:                   <button
+5534:                     className={`btn btn-sm ${fiiDiiActiveSubTab === 'verdict' ? 'btn-gold' : 'btn-secondary'}`}
+5535:                     onClick={() => setFiiDiiActiveSubTab('verdict')}
+5536:                   >
+5537:                     AI verdict
+5538:                   </button>
+5539:                 </div>
+5540:               </div>
+5541:             </div>
+5542: 
+5543:             {fiiDiiError && fiiDiiData.length === 0 ? (
+5544:               <div className="card" style={{ padding: 40, textAlign: 'center', color: '#ffaa00', border: '1px dashed rgba(255, 170, 0, 0.4)', background: 'rgba(255, 170, 0, 0.03)' }}>
+5545:                 <span style={{ fontSize: 24, display: 'block', marginBottom: 12 }}>⚠️</span>
+5546:                 {fiiDiiError}
+5547:               </div>
+5548:             ) : loadingFiiDii && fiiDiiData.length === 0 ? (
+5549:               <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+5550:                 Watson, fetching the FII/DII flows. One moment...
+5551:               </div>
+5552:             ) : fiiDiiData.length === 0 ? (
+5553:               <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+5554:                 No FII/DII flow records found.
+5555:               </div>
+5556:             ) : (
+5557:               <div>
+5558:                 {fiiDiiError && (
+5559:                   <div className="alert alert-warning" style={{
+5560:                     background: 'rgba(255,170,0,0.08)',
+5561:                     border: '1px solid rgba(255,170,0,0.25)',
+5562:                     color: '#ffaa00',
+5563:                     borderRadius: 4,
+5564:                     padding: '12px 16px',
+5565:                     marginBottom: 16,
+5566:                     fontSize: 13,
+5567:                     display: 'flex',
+5568:                     alignItems: 'center',
+5569:                     gap: 8
+5570:                   }}>
+5571:                     <span>⚠️</span>
+5572:                     <span>Live FII/DII data unavailable — NSE session expired. Retrying... Last known: {fiiDiiLastCachedTime}</span>
+5573:                   </div>
+5574:                 )}
+5575: 
+5576:                 {fiiDiiActiveSubTab === 'today' && (() => {
+5577:                   // Use enriched API object if available, fall back to fiiDiiData[0]
+5578:                   const api = fiiDiiToday;
+5579:                   const today = fiiDiiData[0];
+5580:                   if (!api && !today) return null;
+5581: 
+5582:                   // Values — prefer enriched API fields
+5583:                   const fiiBuy  = api?.fii?.buy  ?? today?.fii_buy  ?? 0;
+5584:                   const fiiSell = api?.fii?.sell ?? today?.fii_sell ?? 0;
+5585:                   const fiiNet  = api?.fii?.net  ?? (fiiBuy - fiiSell);
+5586:                   const diiBuy  = api?.dii?.buy  ?? today?.dii_buy  ?? 0;
+5587:                   const diiSell = api?.dii?.sell ?? today?.dii_sell ?? 0;
+5588:                   const diiNet  = api?.dii?.net  ?? (diiBuy - diiSell);
+5589:                   const combNet = api?.combined_net ?? (fiiNet + diiNet);
+5590: 
+5591:                   // Calculate Streaks and Momentum
+5592:                   const getStreak = (data, field) => {
+5593:                     if (!data || data.length === 0) return { count: 0, type: 'NEUTRAL' };
+5594:                     const firstVal = data[0][field];
+5595:                     if (firstVal === undefined || firstVal === null || isNaN(firstVal) || firstVal === 0) return { count: 0, type: 'NEUTRAL' };
+5596:                     const isPositive = firstVal > 0;
+5597:                     let count = 0;
+5598:                     for (let i = 0; i < data.length; i++) {
+5599:                       const val = data[i][field];
+5600:                       if (val === undefined || val === null || isNaN(val)) break;
+5601:                       if (isPositive && val > 0) count++;
+5602:                       else if (!isPositive && val < 0) count++;
+5603:                       else break;
+5604:                     }
+5605:                     return { count, type: isPositive ? 'BUY' : 'SELL' };
+5606:                   };
+5607: 
+5608:                   const get5dSum = (data, field) => {
+5609:                     if (!data || data.length === 0) return 0;
+5610:                     return data.slice(0, 5).reduce((acc, curr) => acc + (curr[field] || 0), 0);
+5611:                   };
+5612: 
+5613:                   const fiiStreak = getStreak(fiiDiiData, 'fii_net');
+5614:                   const diiStreak = getStreak(fiiDiiData, 'dii_net');
+5615:                   const fiiMom5d = get5dSum(fiiDiiData, 'fii_net');
+5616:                   const diiMom5d = get5dSum(fiiDiiData, 'dii_net');
+5617: 
+5618:                   const isDivergent = (fiiNet > 0 && diiNet < 0) || (fiiNet < 0 && diiNet > 0);
+5619:                   const divergenceType = isDivergent 
+5620:                     ? (fiiNet > 0 ? 'FII_BUY_DII_SELL' : 'DII_BUY_FII_SELL')
+5621:                     : (fiiNet > 0 ? 'CO_BUY' : 'CO_SELL');
+5622: 
+5623:                   // Display date — always from API (IST), never hardcoded
+5624:                   const displayDate = api?.date ||
+5625:                     new Date().toLocaleDateString('en-IN', {
+5626:                       day: '2-digit', month: 'short', year: 'numeric',
+5627:                       timeZone: 'Asia/Kolkata'
+5628:                     }).toUpperCase().replace(/ /g, '-');
+5629: 
+5630:                   // Stale data: NSE hasn't updated to today yet
+5631:                   const isStale = api && api.is_today === false;
+5632: 
+5633:                   // Alignment (from API or computed locally)
+5634:                   const alignment = api?.alignment || (() => {
+5635:                     if (fiiNet > 0 && diiNet > 0) return { type: 'BULLISH', label: '🟢 BULLISH ALIGNMENT', desc: 'Both FII and DII are buying. Strong institutional conviction.' };
+5636:                     if (fiiNet < 0 && diiNet < 0) return { type: 'BEARISH', label: '🔴 BEARISH ALIGNMENT', desc: 'Both FII and DII are selling. Joint institutional distribution.' };
+5637:                     if (fiiNet < 0 && diiNet > 0) return { type: 'MIXED_DII', label: '🟡 MIXED (DII Buying, FII Selling)', desc: 'Domestic support absorbing foreign distribution.' };
+5638:                     return { type: 'MIXED_FII', label: '🟡 MIXED (FII Buying, DII Selling)', desc: 'Foreign inflow despite domestic caution.' };
+5639:                   })();
+5640: 
+5641:                   const alignmentColor = alignment.type === 'BULLISH' ? 'var(--green)'
+5642:                     : alignment.type === 'BEARISH' ? 'var(--red)' : 'var(--gold)';
+5643: 
+5644:                   // Interpretation text
+5645:                   const fiiText = api?.fii?.interpretation || (() => {
+5646:                     const pct = fiiSell > 0 ? ((Math.abs(fiiBuy - fiiSell) / fiiSell) * 100).toFixed(1) : '0.0';
+5647:                     return `FII is ${fiiNet > 0 ? 'accumulating' : 'distributing'}. Buy volume (₹${formatINR(fiiBuy)} cr) is ${pct}% ${fiiNet > 0 ? 'higher' : 'lower'} than sell volume.`;
+5648:                   })();
+5649:                   const diiText = api?.dii?.interpretation || (() => {
+5650:                     const pct = diiSell > 0 ? ((Math.abs(diiBuy - diiSell) / diiSell) * 100).toFixed(1) : '0.0';
+5651:                     return `DII is ${diiNet > 0 ? 'accumulating' : 'distributing'}. Buy volume (₹${formatINR(diiBuy)} cr) is ${pct}% ${diiNet > 0 ? 'higher' : 'lower'} than sell volume.`;
+5652:                   })();
+5653: 
+5654:                   return (
+5655:                     <div>
+5656:                       {/* Date Header — live IST clock */}
+5657:                       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+5658:                         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+5659:                           <h3 style={{ margin: 0, fontFamily: 'Cinzel, serif', color: 'var(--text-primary)' }}>
+5660:                             {displayDate}
+5661:                           </h3>
+5662:                           {api?.market_open && (
+5663:                             <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--green)', border: '1px solid rgba(0,201,167,0.35)', borderRadius: 3, padding: '2px 7px', textTransform: 'uppercase' }}>
+5664:                               ● MARKET OPEN
+5665:                             </span>
+5666:                           )}
+5667:                           {api && !api.market_open && (
+5668:                             <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--text-muted)', border: '1px solid rgba(138,154,176,0.3)', borderRadius: 3, padding: '2px 7px', textTransform: 'uppercase' }}>
+5669:                               ■ MARKET CLOSED
+5670:                             </span>
+5671:                           )}
+5672:                         </div>
+5673:                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+5674:                           <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'IBM Plex Mono, monospace' }}>
+5675:                             {api?.market_open
+5676:                               ? `Live as of ${fiiDiiLiveClock}`
+5677:                               : `Market Closed · Last data: ${api?.last_updated || fiiDiiLiveClock}`
+5678:                             }
+5679:                           </span>
+5680:                           <button
+5681:                             className="btn btn-secondary btn-sm"
+5682:                             onClick={fetchFiiDii}
+5683:                             disabled={loadingFiiDii}
+5684:                             style={{ fontSize: 11 }}
+5685:                           >
+5686:                             {loadingFiiDii ? '...' : '↻ Refresh'}
+5687:                           </button>
+5688:                         </div>
+5689:                       </div>
+5690: 
+5691:                       {/* Stale data warning */}
+5692:                       {isStale && (
+5693:                         <div style={{
+5694:                           background: 'rgba(255,170,0,0.08)', border: '1px solid rgba(255,170,0,0.3)',
+5695:                           borderRadius: 4, padding: '10px 14px', marginBottom: 16,
+5696:                           fontSize: 12, color: '#ffaa00', display: 'flex', alignItems: 'center', gap: 8
+5697:                         }}>
+5698:                           <span>⚠️</span>
+5699:                           <span>NSE may not have updated today's data yet. Showing latest available ({api.nse_raw_date}). Data typically updates after market opens at 09:15 IST.</span>
+5700:                         </div>
+5701:                       )}
+5702: 
+5703:                       {/* Top Metric Cards — consistent 2-decimal formatting */}
+5704:                       <div className="metrics-grid" style={{ marginBottom: 20 }}>
+5705:                         <div className="metric-card">
+5706:                           <div className="metric-label">FII NET</div>
+5707:                           <div className={`metric-value ${fiiNet >= 0 ? 'metric-val-green' : 'metric-val-red'}`}>
+5708:                             {fiiNet >= 0 ? '+' : '-'}₹{formatINR(fiiNet)} cr
+5709:                           </div>
+5710:                           <div className="metric-sub">
+5711:                             Buy ₹{formatINR(fiiBuy)} | Sell ₹{formatINR(fiiSell)}
+5712:                           </div>
+5713:                         </div>
+5714: 
+5715:                         <div className="metric-card">
+5716:                           <div className="metric-label">DII NET</div>
+5717:                           <div className={`metric-value ${diiNet >= 0 ? 'metric-val-green' : 'metric-val-red'}`}>
+5718:                             {diiNet >= 0 ? '+' : '-'}₹{formatINR(diiNet)} cr
+5719:                           </div>
+5720:                           <div className="metric-sub">
+5721:                             Buy ₹{formatINR(diiBuy)} | Sell ₹{formatINR(diiSell)}
+5722:                           </div>
+5723:                         </div>
+5724: 
+5725:                         <div className="metric-card">
+5726:                           <div className="metric-label">NET COMBINED</div>
+5727:                           <div className={`metric-value ${combNet >= 0 ? 'metric-val-green' : 'metric-val-red'}`}>
+5728:                             {combNet >= 0 ? '+' : '-'}₹{formatINR(combNet)} cr
+5729:                           </div>
+5730:                           <div className="metric-sub">Institutional Sum Flow</div>
+5731:                         </div>
+5732:                       </div>
+5733: 
+5734:                       {/* Alignment Banner */}
+5735:                       <div style={{
+5736:                         background: `rgba(${combNet >= 0 ? '0, 201, 167' : '255, 77, 77'}, 0.08)`,
+5737:                         borderLeft: `4px solid ${alignmentColor}`,
+5738:                         padding: '16px 20px', borderRadius: 4, marginBottom: 20
+5739:                       }}>
+5740:                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+5741:                           <span style={{ fontWeight: 'bold', letterSpacing: '1px', fontSize: 14, color: alignmentColor }}>
+5742:                             {alignment.label}
+5743:                           </span>
+5744:                         </div>
+5745:                         <div style={{ color: 'var(--text-secondary)', fontSize: 13, lineHeight: '1.5' }}>
+5746:                           {alignment.desc}
+5747:                         </div>
+5748:                       </div>
+5749: 
+5750:                       {/* 🕵️‍♂️ Institutional Flow Analytics (Streak & Momentum) */}
+5751:                       <div className="card" style={{ marginBottom: 20 }}>
+5752:                         <div className="card-header">
+5753:                           <div className="card-title">🕵️‍♂️ Institutional Flow Analytics (Streak & Momentum)</div>
+5754:                         </div>
+5755:                         <div className="card-body" style={{ padding: 20 }}>
+5756:                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 20 }}>
+5757:                             <div className="metric-card" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+5758:                               <div className="metric-label" style={{ fontSize: 10 }}>FII Streak (30-Day)</div>
+5759:                               <div className="metric-value" style={{ fontSize: 15, color: fiiStreak.type === 'BUY' ? 'var(--green)' : fiiStreak.type === 'SELL' ? 'var(--red)' : 'var(--gold)' }}>
+5760:                                 {fiiStreak.count} Days {fiiStreak.type === 'BUY' ? 'Buying 📈' : fiiStreak.type === 'SELL' ? 'Selling 📉' : 'Flat'}
+5761:                               </div>
+5762:                             </div>
+5763:                             <div className="metric-card" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+5764:                               <div className="metric-label" style={{ fontSize: 10 }}>DII Streak (30-Day)</div>
+5765:                               <div className="metric-value" style={{ fontSize: 15, color: diiStreak.type === 'BUY' ? 'var(--green)' : diiStreak.type === 'SELL' ? 'var(--red)' : 'var(--gold)' }}>
+5766:                                 {diiStreak.count} Days {diiStreak.type === 'BUY' ? 'Buying 📈' : diiStreak.type === 'SELL' ? 'Selling 📉' : 'Flat'}
+5767:                               </div>
+5768:                             </div>
+5769:                             <div className="metric-card" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+5770:                               <div className="metric-label" style={{ fontSize: 10 }}>FII 5D Momentum</div>
+5771:                               <div className={`metric-value ${fiiMom5d >= 0 ? 'metric-val-green' : 'metric-val-red'}`} style={{ fontSize: 16 }}>
+5772:                                 {fiiMom5d >= 0 ? '+' : ''}₹{formatINR(fiiMom5d)} cr
+5773:                               </div>
+5774:                             </div>
+5775:                             <div className="metric-card" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+5776:                               <div className="metric-label" style={{ fontSize: 10 }}>DII 5D Momentum</div>
+5777:                               <div className={`metric-value ${diiMom5d >= 0 ? 'metric-val-green' : 'metric-val-red'}`} style={{ fontSize: 16 }}>
+5778:                                 {diiMom5d >= 0 ? '+' : ''}₹{formatINR(diiMom5d)} cr
+5779:                               </div>
+5780:                             </div>
+5781:                           </div>
+5782: 
+5783:                           {/* Divergence Status */}
+5784:                           <div style={{
+5785:                             background: 'rgba(255,255,255,0.02)',
+5786:                             border: '1px solid var(--border)',
+5787:                             borderRadius: 6,
+5788:                             padding: '12px 16px',
+5789:                             display: 'flex',
+5790:                             alignItems: 'center',
+5791:                             gap: 12
+5792:                           }}>
+5793:                             <span style={{
+5794:                               fontSize: 11, fontWeight: 'bold', borderRadius: 4, padding: '3px 8px',
+5795:                               background: isDivergent ? 'rgba(245,158,11,0.15)' : 'rgba(34,197,94,0.15)',
+5796:                               color: isDivergent ? 'var(--gold)' : 'var(--green)',
+5797:                               border: `1px solid ${isDivergent ? 'var(--gold)' : 'var(--green)'}`,
+5798:                               whiteSpace: 'nowrap'
+5799:                             }}>
+5800:                               {isDivergent ? '⚠️ FLOW DIVERGENCE' : '✅ FLOW ALIGNMENT'}
+5801:                             </span>
+5802:                             <span style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
+5803:                               {divergenceType === 'FII_BUY_DII_SELL' && 'Foreign capital is buying, but Domestic desks are distributing. Potential index volatility ahead.'}
+5804:                               {divergenceType === 'DII_BUY_FII_SELL' && 'Domestic support is actively buying to absorb Foreign institutional selling pressure.'}
+5805:                               {divergenceType === 'CO_BUY' && 'Both Foreign and Domestic institutional desks are aligned in buying. High conviction rally.'}
+5806:                               {divergenceType === 'CO_SELL' && 'Both Foreign and Domestic institutional desks are aligned in selling. Risk-off distribution.'}
+5807:                             </span>
+5808:                           </div>
+5809:                         </div>
+5810:                       </div>
+5811: 
+5812:                       {/* Sectoral Flow Panel */}
+5813:                       {fiiDiiSectorFlow && fiiDiiSectorFlow.length > 0 && (
+5814:                         <div className="card" style={{ marginBottom: 20 }}>
+5815:                           <div className="card-header">
+5816:                             <div className="card-title">🔦 Sectoral Flow (Institutional Stance)</div>
+5817:                           </div>
+5818:                           <div className="card-body" style={{ padding: 20 }}>
+5819:                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+5820:                               {fiiDiiSectorFlow.map((s, idx) => {
+5821:                                 const isAcc = s.stance === 'ACCUMULATING';
+5822:                                 const stanceColor = isAcc ? 'var(--green)' : s.stance === 'DISTRIBUTING' ? 'var(--red)' : 'var(--gold)';
+5823:                                 return (
+5824:                                   <div key={idx} style={{
+5825:                                     background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px',
+5826:                                     display: 'flex', flexDirection: 'column', gap: 6
+5827:                                   }}>
+5828:                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+5829:                                       <span style={{ fontWeight: 'bold', fontSize: 12, color: '#fff' }}>{s.sector}</span>
+5830:                                       <span style={{
+5831:                                         fontSize: 8, fontWeight: 'bold', borderRadius: 3, padding: '1px 5px',
+5832:                                         background: isAcc ? 'rgba(34,197,94,0.1)' : s.stance === 'DISTRIBUTING' ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)',
+5833:                                         color: stanceColor, border: `1px solid ${stanceColor}`
+5834:                                       }}>{s.stance}</span>
+5835:                                     </div>
+5836:                                     <div style={{ fontSize: 14, fontWeight: 'bold', color: s.netFlow >= 0 ? 'var(--green)' : 'var(--red)', fontFamily: 'IBM Plex Mono, monospace' }}>
+5837:                                       {s.netFlow >= 0 ? '+' : ''}₹{s.netFlow.toFixed(2)} Cr
+5838:                                     </div>
+5839:                                   </div>
+5840:                                 );
+5841:                               })}
+5842:                             </div>
+5843:                           </div>
+5844:                         </div>
+5845:                       )}
+5846: 
+5847:                       {/* Side by Side Desk Columns — 2-decimal formatting everywhere */}
+5848:                       <div className="grid-2col" style={{ marginBottom: 20 }}>
+5849:                         {/* FII Column */}
+5850:                         <div className="card" style={{ marginBottom: 0 }}>

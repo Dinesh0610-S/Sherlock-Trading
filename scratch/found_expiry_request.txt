@@ -1,0 +1,48 @@
+Created At: 2026-06-03T18:40:13Z
+Completed At: 2026-06-03T18:40:14Z
+
+				The command completed successfully.
+				Output:
+				
+C:\Users\DINESHMANI\.gemini\antigravity\brain\1599aab6-1df6-45fd-878f-ac86e47ffad0\.system_generated\logs\transcript.js
+onl:5469:{"step_index":3912,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-06-03T18:29
+:24Z","content":"<USER_REQUEST>\nFix exactly these 4 issues. Zero scope creep. Zero other 
+changes.\n\n�\nFIX 1: NIFTY 50 EXPIRY - TUESDAY (not 
+Thursday)\n�\nNifty 50 weekly expiry is TUESDAY. BankNifty is 
+WEDNESDAY. \nFinNifty is TUESDAY. Sensex is FRIDAY. MidcpNifty is MONDAY.\n\nFIND AND REPLACE every expiry reference 
+in codebase:\n\n```typescript\n// DELETE this wrong mapping:\nconst EXPIRY_DAY = { NIFTY: 4, BANKNIFTY: 4 }; // 
+Thursday=4 WRONG\n\n// REPLACE WITH correct NSE expiry calendar:\nconst EXPIRY_DAYS: Record<string, number> = {\n  
+'NIFTY':      2,  // Tuesday  (NSE changed from Thursday, effective 2024)\n  'BANKNIFTY':  3,  // Wednesday\n  
+'FINNIFTY':   2,  // Tuesday\n  'MIDCPNIFTY': 1,  // Monday\n  'SENSEX':     5,  // Friday (BSE)\n  'BANKEX':     1,  
+// Monday (BSE)\n};\n\n// DTE calculator - finds next expiry from today:\nfunction getNextExpiry(instrument: string): 
+{ date: Date; dte: number; label: string } {\n  const today = new Date();\n  const todayDay = today.getDay(); // 
+0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat\n  const expiryDay = EXPIRY_DAYS[instrument] ?? 2;\n  \n  let daysUntil = 
+(expiryDay - todayDay + 7) % 7;\n  \n  // If today IS expiry day:\n  // Before 3:30 PM IST  today is still current 
+expiry\n  // After 3:30 PM IST  next week's expiry\n  if (daysUntil === 0) {\n    const nowIST = new 
+Date(today.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));\n    const marketClose = new Date(nowIST);\n    
+marketClose.setHours(15, 30, 0, 0);\n    if (nowIST > marketClose) daysUntil = 7; // expired today, use next week\n  
+}\n  \n  // Skip if expiry falls on NSE holiday (add holiday list):\n 
+<truncated 259 bytes>
+riter 
+effect:\nasync function streamToUI(response: Response): Promise<string> {\n  const reader = 
+response.body!.getReader();\n  const decoder = new TextDecoder();\n  let fullText = '';\n  \n  while (true) {\n    
+const { done, value } = await reader.read();\n    if (done) break;\n    \n    const chunk = decoder.decode(value);\n   
+ const lines = chunk.split('\\n').filter(l => l.startsWith('data: '));\n    \n    for (const line of lines) {\n      
+try {\n        const data = JSON.parse(line.slice(6));\n        if (data.type === 'content_block_delta' && 
+data.delta?.text) {\n          fullText += data.delta.text;\n          // Update UI token by token:\n          
+setChatResponse(prev => prev + data.delta.text);\n        }\n      } catch {}\n    }\n  }\n  return fullText;\n}\n\n// 
+REMOVE all static response maps like:\n// const STATIC_RESPONSES = { 'what is pcr': '...', ... }   DELETE ALL\n\n// 
+REMOVE all keyword matching like:\n// if (message.includes('pcr')) return staticPCRExplanation;   DELETE ALL\n\n// 
+Every single message now goes through getHolmesResponse()\n// with live market data injected - no 
+exceptions\n```\n\nMarket context injection (refresh every 30s):\n```typescript\nfunction buildMarketContext(): 
+MarketContext {\n  return {\n    timestamp: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),\n    
+activeSymbol,\n    ltp, vwap, change, changePercent,\n    dayHigh, dayLow,\n    pcr, maxPain,\n    ivPercentile,\n    
+niftyExpiry: getNextExpiry('NIFTY'),   // now shows Tuesday correctly\n    bankNiftyExpiry: 
+getNextExpiry('BANKNIFTY'),\n    confidenceScore: deepScore.score,\n    grade: deepScore.grade,\n    topPattern: 
+patterns[0]?.name ?? 'None detected',\n    multiTFConsensus,\n    vix,\n    fiiFlow,\n    sectorMap,\n    // Include 
+last 30-min strategy if generated:\n    currentStrategy: current30mStrategy ?? null,\n  
+};\n}\n```\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nThe current local time is: 
+2026-06-03T23:59:24+05:30.\n</ADDITIONAL_METADATA>"}
+
+
+

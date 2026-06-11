@@ -1,0 +1,63 @@
+Created At: 2026-05-31T16:14:20Z
+Completed At: 2026-05-31T16:14:20Z
+File Path: `file:///c:/Users/DINESHMANI/Desktop/Pictures/Trade/src/App.jsx`
+Total Lines: 7873
+Total Bytes: 388374
+Showing lines 6581 to 6742
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+6581:                                     <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Support Level</div>
+6582:                                     <div style={{ color: 'var(--green)', fontWeight: 'bold', fontFamily: 'IBM Plex Mono, monospace', fontSize: 13 }}>
+6583:                                       {(pred.support_level || 0).toLocaleString('en-IN')}
+6584:                                     </div>
+6585:                                   </div>
+6586:                                   <div style={{ padding: '8px 12px', background: 'rgba(255,77,77,0.03)', border: '1px solid rgba(255,77,77,0.15)', borderRadius: 4 }}>
+6587:                                     <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Resistance Level</div>
+6588:                                     <div style={{ color: 'var(--red)', fontWeight: 'bold', fontFamily: 'IBM Plex Mono, monospace', fontSize: 13 }}>
+6589:                                       {(pred.resistance_level || 0).toLocaleString('en-IN')}
+6590:                                     </div>
+6591:                                   </div>
+6592:                                 </div>
+6593:                               </div>
+6594:                             </div>
+6595: 
+6596:                             {/* Intraday & Swing Trading Plans */}
+6597:                             {(() => {
+6598:                               const intra = morningBrief.intraday_plan || {};
+6599:                               const swing = morning
+<truncated 9962 bytes>
+                {(morningBrief.key_events_today || []).length === 0 && (
+6709:                                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>No major events scheduled.</div>
+6710:                                 )}
+6711:                               </div>
+6712:                             </div>
+6713: 
+6714:                             {/* Next update */}
+6715:                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px',
+6716:                               background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 6 }}>
+6717:                               <span style={{ fontSize: 16 }}>⏰</span>
+6718:                               <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+6719:                                 <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Next Brief Update</span>
+6720:                                 <span style={{ color: 'var(--text-secondary)', fontSize: 11.5 }}>{morningBrief.next_update}</span>
+6721:                               </div>
+6722:                             </div>
+6723: 
+6724:                           </div>
+6725: 
+6726:                         </div>
+6727:                       )}
+6728: 
+6729:                       {briefSubTab === 'verdict' && (
+6730:                         <MarketVerdictTab data={morningBrief} />
+6731:                       )}
+6732: 
+6733:                       {briefSubTab === 'trading-plan' && (
+6734:                         <TradingPlanTab data={morningBrief} />
+6735:                       )}
+6736:                     </div>
+6737:                   </div>
+6738:                 );
+6739:               })()}
+6740:             </div>
+6741:           );
+6742:         })()}
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

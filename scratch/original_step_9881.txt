@@ -1,0 +1,44 @@
+Created At: 2026-05-31T16:14:16Z
+Completed At: 2026-05-31T16:14:16Z
+File Path: `file:///c:/Users/DINESHMANI/Desktop/Pictures/Trade/src/App.jsx`
+Total Lines: 7873
+Total Bytes: 388374
+Showing lines 6421 to 6580
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+6421:                             {briefSubTab === 'india' && (
+6422:                               <div className="card" style={{ marginBottom: 0 }}>
+6423:                               <div className="card-header">
+6424:                                 <div className="card-title">🇮🇳 Domestic Market Context</div>
+6425:                               </div>
+6426:                               <div className="card-body" style={{ padding: 16 }}>
+6427:                                 <div className="metrics-grid" style={{ marginBottom: 16, gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+6428:                                   <div className="metric-card" style={{ padding: 10 }}>
+6429:                                     <div className="metric-label" style={{ fontSize: 9 }}>Nifty Prev Close</div>
+6430:                                     <div className="metric-value metric-val-gold" style={{ fontSize: 14 }}>₹{raw.nifty_current > 0 ? raw.nifty_current.toLocaleString('en-IN') : '—'}</div>
+6431:                                   </div>
+6432:                                   <div className="metric-card" style={{ padding: 10 }}>
+6433:                                     <div className="metric-label" style={{ fontSize: 9 }}>SGX/Gift Nifty</div>
+6434:                                     <div className={`metric-value ${(raw.sgx_gap || 0) >= 0 ? 'metric-val-green' : 'metric-val-red'}`} style={{ fontSize: 14 }}>
+6435:                                       {raw.sgx_nifty > 0 ? raw.sgx_nifty.toLocaleString('en-IN') : '—'}
+6436:                                     </div>
+6
+<truncated 11202 bytes>
+: 9 }}>Direction</div>
+6564:                                     <div className="metric-value" style={{ color: pred.direction === 'GAP UP' ? 'var(--green)' : pred.direction === 'GAP DOWN' ? 'var(--red)' : 'var(--gold)', fontSize: 14 }}>
+6565:                                       {pred.direction || '—'}
+6566:                                     </div>
+6567:                                   </div>
+6568:                                   <div className="metric-card" style={{ padding: 10, background: 'transparent', border: '1px solid var(--border)' }}>
+6569:                                     <div className="metric-label" style={{ fontSize: 9 }}>Expected Gap</div>
+6570:                                     <div className={`metric-value ${(pred.expected_points || 0) >= 0 ? 'metric-val-green' : 'metric-val-red'}`} style={{ fontSize: 14 }}>
+6571:                                       {(pred.expected_points || 0) >= 0 ? '+' : ''}{pred.expected_points || 0} pts
+6572:                                     </div>
+6573:                                   </div>
+6574:                                   <div className="metric-card" style={{ padding: 10, background: 'transparent', border: '1px solid var(--border)' }}>
+6575:                                     <div className="metric-label" style={{ fontSize: 9 }}>Probability</div>
+6576:                                     <div className="metric-value metric-val-gold" style={{ fontSize: 14 }}>{pred.probability || '—'}</div>
+6577:                                   </div>
+6578:                                 </div>
+6579:                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+6580:                                   <div style={{ padding: '8px 12px', background: 'rgba(0,201,167,0.03)', border: '1px solid rgba(0,201,167,0.15)', borderRadius: 4 }}>
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

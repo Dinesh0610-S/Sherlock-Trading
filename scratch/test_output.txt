@@ -1,0 +1,32 @@
+Testing /api/deduct endpoint...
+Status Code: 200
+Verdict Result:
+### 🕵️‍♂️ Sherlock's Deduction (Rule-Based Fallback Engine)
+
+Watson, observe the clues for **NIFTY** (Spot: **23547.75**):
+
+1. *Technical Footprints:* The RSI stands at 35.0 (below 50) and Spot is below the 21 EMA, signaling strict bearish constraints. The spot price is trading below the 21 EMA, indicating persistent overhead resistance. Furthermore, trading below daily VWAP (₹23547.75) indicates that the current day’s institutional bias leans defensive.
+2. *Derivative Undercurrents:* In the options chain, the Put-Call Ratio of 0.96 (near/below 1.0) indicates that call writers are aggressively capping the upside.
+
+**The Deductive Verdict:**
+When you eliminate the impossible, whatever remains, however improbable, must be the truth. The setup shows clear bearish distribution under overhead resistance. All bullish paths are closed.
+
+### 🎯 Options Execution Checklist
+Enter **Put PE Option** ONLY IF a 15-minute candle closes below ₹23547.75 with selling pressure (verified manually on your chart).
+
+==================================================
+
+Testing /api/generate-signal endpoint...
+Status Code: 200
+Signal Result:
+### ⚡ **SIGNAL**: BEARISH BREAKDOWN on **NIFTY**
+- **CONFIDENCE**: 82% (based on EMA and VWAP indicators)
+- **ENTRY ZONE**: 15-Min candle close below **₹23547.75**
+- **STOP LOSS**: **₹23597.75** (strictly enforced above resistance level of ₹23597.75)
+- **TARGET 1**: **₹23497.75** (R:R 1:1)
+- **TARGET 2**: **₹23447.75** (R:R 1:2)
+- **RISK-REWARD**: 1:2.00 target matrix
+- **VALIDITY**: End of active session
+- **POSITION SIZE RULE**: Risk no more than 1% of total capital
+- **DEDUCTION**: Seller pressure is accelerating and options PCR indicates call writing overhead.
+- **INVALIDATION**: 15-Min candle close above **₹23547.75**

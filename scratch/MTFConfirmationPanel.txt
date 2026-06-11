@@ -1,0 +1,144 @@
+const MTFConfirmationPanel = ({ symbol }) => {
+  const [mtfData, setMtfData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    fetch(`/api/verdict/mtf?symbol=${symbol}`)
+      .then(r => r.json())
+      .then(data => {
+        if (active) {
+          setMtfData(data);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [symbol]);
+
+  if (loading) return (
+    <div className="mtf-panel" style={{ textAlign: 'center', padding: '24px' }}>
+      <div className="spinner-gold" style={{ display: 'inline-block', width: 24, height: 24, border: '2px solid var(--gold)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: 8 }} />
+      <div style={{ fontSize: '12px', color: '#888', fontFamily: 'var(--font-mono)' }}>Analyzing 3 timeframes...</div>
+    </div>
+  );
+  if (!mtfData) return null;
+
+  const { timeframes, alignment, summary, confidenceBonus } = mtfData;
+
+  const TF_CONFIG = [
+    { key: '15m', label: '15 MIN', desc: 'Intraday',   icon: '⚡' },
+    { key: '1h',  label: '1 HOUR', desc: 'Short-term', icon: '📊' },
+    { key: '1d',  label: 'DAILY',  desc: 'Positional', icon: '📅' }
+  ];
+
+  return (
+    <div className="mtf-panel">
+      <div className="mtf-header">
+        <span className="mtf-title">
+          🔭 Multi-Timeframe Confirmation
+        </span>
+        <span className="mtf-bonus"
+              style={{ color: confidenceBonus > 0 ? '#00ff88' : '#f5a623' }}>
+          {confidenceBonus > 0
+            ? `+${confidenceBonus}% confidence`
+            : 'No alignment bonus'}
+        </span>
+      </div>
+
+      {/* Alignment banner */}
+      <div className="alignment-banner"
+           style={{ borderColor: summary?.color || '#f5a623',
+                    background: (summary?.color || '#f5a623') + '11' }}>
+        <span className="alignment-label"
+              style={{ color: summary?.color || '#f5a623' }}>
+          {summary?.label || 'MIXED'}
+        </span>
+        <span className="alignment-action">
+          {summary?.action || 'Wait for alignment.'}
+        </span>
+      </div>
+
+      {/* 3 timeframe cards */}
+      <div className="tf-cards">
+        {TF_CONFIG.map(({ key, label, desc, icon }) => {
+          const tf = timeframes?.[key];
+          if (!tf) return (
+            <div key={key} className="tf-card unavailable">
+              <span className="tf-icon">{icon}</span>
+              <span className="tf-label">{label}</span>
+              <span className="tf-status">Unavailable</span>
+            </div>
+          );
+
+          return (
+            <div key={key}
+                 className={`tf-card trend-${tf.trend ? tf.trend.toLowerCase() : 'neutral'}`}>
+              <div className="tf-card-header">
+                <span className="tf-icon">{icon}</span>
+                <span className="tf-label">{label}</span>
+                <span className="tf-desc">{desc}</span>
+              </div>
+
+              {/* Trend badge */}
+              <div className={`trend-badge ${tf.trend ? tf.trend.toLowerCase() : 'neutral'}`}>
+                {tf.trend === 'BULLISH' ? '▲' :
+                 tf.trend === 'BEARISH' ? '▼' : '→'} {tf.trend || 'NEUTRAL'}
+              </div>
+
+              {/* Key data */}
+              <div className="tf-data">
+                <div className="tf-row">
+                  <span>RSI</span>
+                  <span style={{
+                    color: tf.rsi < 35 ? '#00ff88' :
+                           tf.rsi > 65 ? '#ff4444' : '#f5a623'
+                  }}>{tf.rsi}</span>
+                </div>
+                <div className="tf-row">
+                  <span>EMA9/21</span>
+                  <span className={
+                    tf.ema9 > tf.ema21 ? 'green' : 'red'
+                  }>
+                    {tf.ema9 > tf.ema21 ? '↑ Bull' : '↓ Bear'}
+                  </span>
+                </div>
+                <div className="tf-row">
+                  <span>Volume</span>
+                  <span className={tf.volRatio > 1.2 ? 'green' : ''}>
+                    {tf.volRatio}x avg
+                  </span>
+                </div>
+                <div className="tf-row">
+                  <span>Signal</span>
+                  <span className={
+                    tf.signal === 'BUY_ZONE'  ? 'green' :
+                    tf.signal === 'SELL_ZONE' ? 'red'   : 'amber'
+                  }>
+                    {tf.signal ? tf.signal.replace('_', ' ') : 'WAIT'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* MTF trade rule */}
+      <div className="mtf-rule">
+        <span className="rule-icon">📌</span>
+        <span>
+          Top 1% rule: Enter ONLY when ≥2 timeframes align.
+          {mtfData.aligned
+            ? ` ✓ ${alignment ? alignment.replace('_', ' ') : ''} detected.`
+            : ' ✗ Currently MIXED — wait for alignment.'}
+        </span>
+      </div>
+    </div>
+  );
+};

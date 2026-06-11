@@ -1,0 +1,109 @@
+Created At: 2026-06-08T13:41:34Z
+Completed At: 2026-06-08T13:41:35Z
+File Path: `file:///c:/Users/DINESHMANI/Desktop/Pictures/Trade/src/utils/sharedHelpers.jsx`
+Total Lines: 1704
+Total Bytes: 57997
+Showing lines 851 to 1650
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+851:       reasons.push('Above VWAP');
+852:     } else if (latestClose < vwap * 0.997) {
+853:       score -= 1.5;
+854:       reasons.push('Below VWAP');
+855:       if (!keyFactor) keyFactor = 'Below VWAP';
+856:     }
+857: 
+858:     if (trend.label.includes('STRONG UP')) {
+859:       score += 2;
+860:       if (!keyFactor) keyFactor = 'Strong uptrend';
+861:     } else if (trend.label.includes('UPTREND')) {
+862:       score += 1;
+863:     } else if (trend.label.includes('STRONG DOWN')) {
+864:       score -= 2;
+865:       if (!keyFactor) keyFactor = 'Strong downtrend';
+866:     } else if (trend.label.includes('DOWNTREND')) {
+867:       score -= 1;
+868:     }
+869:   }
+870: 
+871:   if (pcrVal) {
+872:     if (pcrVal > 1.4) {
+873:       score += 1.5;
+874:       reasons.push(`PCR ${pcrVal.toFixed(2)} bullish`);
+875:     } else if (pcrVal > 1.1) {
+876:       score += 0.8;
+877:     } else if (pcrVal < 0.7) {
+878:       score -= 1.5;
+879:       reasons.push(`PCR ${pcrVal.toFixed(2)} bearish`);
+880:     } else if (pcrVal < 0.9) {
+881:       score -= 0.8;
+882:     }
+883:   }
+884: 
+885:   if (optionData) {
+886:     let callOIChange = 0;
+887:     let putOIChange = 0;
+888:     if (optionData.calls) {
+889:       optionData.calls.forEach(c => { callOIChange += (c.changeOI || c.oiChange || 0); });
+890:     }
+891:     if (optionData.puts) {
+892:       optionData.puts.forEach(p => { putOIChange += (p.changeOI || p.oiChange || 0); });
+893:     }
+894:     const latestClose = windowCandles15m.length > 0 ? windowCandles15m[windowCandles15m.length - 1].close : 23500;
+895:     const p
+<truncated 28930 bytes>
+me && <span className="outcome pending">⏳</span>}
+1597:                   </td>
+1598:                 </tr>
+1599:               ))}
+1600:             </tbody>
+1601:           </table>
+1602:         </div>
+1603: 
+1604:         {stats.decidedTrades === 0 && (
+1605:           <div className="no-history" style={{ marginTop: '10px' }}>
+1606:             No verdict history yet. History builds automatically after market close.
+1607:           </div>
+1608:         )}
+1609:       </div>
+1610:     </div>
+1611:   );
+1612: };
+1613: 
+1614: // ── Sherlock Verdict Content Parsing Utilities ──────────────────────────────
+1615: export const parseEvidenceItem = (item) => {
+1616:   const colonIdx = item.indexOf(':');
+1617:   if (colonIdx !== -1 && colonIdx < 30) {
+1618:     return {
+1619:       label: item.substring(0, colonIdx).replace(/^[\s*\-\d\.\)]+/, '').trim(),
+1620:       value: item.substring(colonIdx + 1).trim()
+1621:     };
+1622:   }
+1623:   const keywords = ['rsi', 'ema', 'vwap', 'pcr', 'max pain', 'fii', 'atr', 'trend'];
+1624:   for (const kw of keywords) {
+1625:     if (item.toLowerCase().includes(kw)) {
+1626:       return {
+1627:         label: kw.toUpperCase(),
+1628:         value: item.replace(/^[\s*\-\d\.\)]+/, '').trim()
+1629:       };
+1630:     }
+1631:   }
+1632:   return {
+1633:     label: 'TECHNICAL EVIDENCE',
+1634:     value: item.replace(/^[\s*\-\d\.\)]+/, '').trim()
+1635:   };
+1636: };
+1637: 
+1638: export function parseVerdict(text) {
+1639:   if (!text) return { deduction: '', evidence: [], checklist: '', raw: '' };
+1640:   
+1641:   const sections = {
+1642:     deduction: '',
+1643:     evidence: [],
+1644:     checklist: '',
+1645:     raw: text
+1646:   };
+1647: 
+1648:   const parts = text.split(/##+\s+/);
+1649:   let intro = parts[0].trim();
+1650:   if (intro) {
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

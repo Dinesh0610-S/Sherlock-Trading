@@ -1,0 +1,44 @@
+﻿
+{"step_index":10142,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-06-01T10:43:12Z","c
+ontent":"<USER_REQUEST>\nUpgrade the RR Calculator page from 6.5/10 to 10/10.\nAdd 5 missing features. Touch ONLY RR 
+Calculator page.\nDO NOT modify any other page or component.\n\nFEATURES TO ADD:\n1. Kelly Criterion position 
+sizing\n2. Scenario analysis table (4 outcomes)\n3. Margin calculation (Nifty/BankNifty/stocks)\n4. Options-specific 
+sizing (premium + theta decay)\n5. Monthly projection with win rate\n\n---\n\n### COMPLETE RR CALCULATOR 
+REWRITE\n\nReplace entire RR Calculator component with this:\n\n```jsx\n// RRCalculator.jsx â€” complete 
+rewrite\n\nimport { useState, useEffect, useCallback } from 'react';\n\nconst RRCalculator = () => {\n\n  // â”€â”€ 
+INPUT STATE 
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n  
+const [inputs, setInputs] = useState({\n    // Basic\n    capital:       1000000,  // â‚¹10 lakhs default\n    
+riskPct:       1,        // 1% risk per trade\n    tradeType:     'OPTIONS', // OPTIONS | FUTURES | EQUITY\n    
+direction:     'LONG',   // LONG | SHORT\n\n    // Instrument\n    instrument:    'NIFTY',\n    strikePrice:   0,      
+  // for options\n    optionType:    'CE',     // CE | PE\n    expiry:        'WEEKLY', // WEEKLY | MONTHLY\n\n    // 
+Price levels\n    entryPrice:    0,\n    stopLoss:      0,\n    target1:       0,\n    target2:       0,\n    target3: 
+      0,\n\n    // Options specific\n    entryPremium:  0,        // premium paid\n    currentDelta:  0.5,      // 
+option delta (0-1)\n    daysToExpiry:  7,        // days left to expiry\n    ivPercent:     15,        // implied 
+volatility %\n\n    // Assumptions\n    winRate:       55,       // expected win rate %\n    tradesPerMonth: 22,      
+// trading days/month\n  });\n\n  // â”€â”€ OUTPUT STATE 
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n  const 
+[results,  setResults]  = useState(null);\n  const [liveData, setLiveData] = useState(null);\n  const [loading,  
+setLoading]  = useState(false);\n\n  // â”€â”€ LOT SIZES 
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n<truncated 45214 bytes>\ntom:8px; }\n.timeline-bars { 
+display:flex; flex-direction:column; gap:6px; }\n.timeline-bar-item {\n  display: flex;\n  align-items: center;\n  
+gap: 8px;\n  font-size: 11px;\n}\n.tl-day  { width: 40px; color: #666; }\n.tl-bar-track {\n  flex: 1;\n  height: 
+8px;\n  background: rgba(255,255,255,0.05);\n  border-radius: 4px;\n  overflow: hidden;\n}\n.tl-bar-fill {\n  height: 
+100%;\n  background: linear-gradient(90deg, #00ff88, #f5a623);\n  border-radius: 4px;\n  transition: width 
+0.5s;\n}\n.tl-pct  { width: 35px; color: #f5a623; text-align:right; }\n.tl-val  { width: 50px; color: #888; 
+text-align:right; }\n\n/* Scenario table */\n.scenario-table {\n  width: 100%;\n  border-collapse: collapse;\n  
+font-size: 12px;\n  margin-bottom: 10px;\n}\n.scenario-table th {\n  background: rgba(245,166,35,0.1);\n  color: 
+#f5a623;\n  padding: 7px 10px;\n  text-align: left;\n  font-size: 9px;\n  text-transform: uppercase;\n  
+letter-spacing: 0.5px;\n}\n.scenario-table td {\n  padding: 8px 10px;\n  border-bottom: 1px solid 
+rgba(255,255,255,0.04);\n  color: #ccc;\n}\n.scenario-row.win-max  td { background: rgba(0,255,136,0.03); 
+}\n.scenario-row.win-base td { background: rgba(0,204,102,0.02); }\n.scenario-row.loss     td { background: 
+rgba(255,68,68,0.03); }\n.s-icon { margin-right: 6px; }\n.total-pnl { font-weight: bold; font-size: 13px; }\n.mono { 
+font-family: 'Courier New', monospace; }\n.prob { color: #888; font-size: 11px; }\n.ev-summary {\n  display: flex;\n  
+align-items: center;\n  gap: 10px;\n  padding: 8px 12px;\n  background: rgba(255,255,255,0.02);\n  border-radius: 
+4px;\n  font-size: 12px;\n  color: #888;\n}\n.ev-note { font-size: 11px; }\n\n/* Monthly projection 
+*/\n.projection-table {\n  width: 100%;\n  border-collapse: collapse;\n  font-size: 12px;\n  margin-bottom: 
+8px;\n}\n.projection-table th {\n  background: rgba(245,166,35,0.08);\n  color: #f5a623;\n  padding: 6px 8px;\n  
+font-size: 9px;\n  text-transform: uppercase;\n}\n.projection-table \n<truncated 2972 bytes>\n\nNOTE: The output was 
+truncated because it was too long. Use a more targeted query or a smaller range to get the information you need."}
+
+

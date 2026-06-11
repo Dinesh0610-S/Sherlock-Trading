@@ -1,0 +1,71 @@
+Task id "641787a0-6251-4052-9205-d0e8b3ff2c8b/task-5358" finished with result:
+
+				The command failed with exit code: 1
+				Output:
+				<truncated 6689 lines>
+2026-05-30 09:30:54,088 - INFO - [get_node_proxy_quote] Node proxy response status: 200
+2026-05-30 09:30:54,088 - INFO - [get_node_proxy_quote] Node proxy data: {'symbol': 'NIFTY', 'lastPrice': 23547.75, 'previousClose': 23907.15, 'change': -359.4, 'pChange': -1.5, 'open': 0, 'dayHigh': 24002.8, 'dayLow': 23484.75, 'volume': 0, 'totalTradedVolume': 0, 'source': 'yahoo'}
+C:\Users\DINESHMANI\Desktop\Pictures\Trade\backend\indicators.py:171: FutureWarning: Series.fillna with 'method' is deprecated and will raise in a future version. Use obj.ffill() or obj.bfill() instead.
+  df['VWAP'] = df['VWAP'].fillna(method='ffill').fillna(df['Close'])
+2026-05-30 09:30:54,515 - INFO - [VWAP] ^NSEI: market not opened, using prev_close 23907.15
+2026-05-30 09:30:54,519 - INFO - 127.0.0.1 - - [30/May/2026 09:30:54] "GET /api/market-data?ticker=^NSEI&period=5d&interval=15m&_t=1780113653280 HTTP/1.1" 200 -
+2026-05-30 09:30:54,557 - INFO - Calling DeepSeek Cloud API...
+2026-05-30 09:30:55,724 - WARNING - DeepSeek API returned error code 402: {"error":{"message":"Insufficient Balance","type":"unknown_error","param":null,"code":"invalid_request_error"}}
+2026-05-30 09:30:55,724 - INFO - Attempting local Ollama API call...
+2026-05-30 09:30:58,854 - INFO -  * Detected change in 'C:\\Users\\DINESHMANI\\Desktop\\Pictures\\Trade\\backend\\server.py', reloading
+2026-05-30 09:30:59,801 - WARNING - Local Ollama API call failed: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x0000020988035250>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+2026-05-30 09:30:59,801 - WARNING - Ollama integration failed or timed out: Both DeepSeek API and local Ollama failed.. Falling back to rule-based engine.
+2026-05-30 09:30:59,802 - INFO - 127.0.0.1 - - [30/May/2026 09:30:59] "POST /api/deduct HTTP/1.1" 200 -
+2026-05-30 09:31:00,109 - INFO -  * Restarting with watchdog (windowsapi)
+2026-05-30 09:31:01,116 - INFO - [TickEngine] Background GBM tick loop started.
+2026-05-30 09:31:01,116 - INFO - [Server] GBM TickEngine started.
+2026-05-30 09:31:01,121 - INFO - [StockDB] Schema initialized successfully.
+2026-05-30 09:31:01,130 - INFO - [StockDB] Database already populated (294 stocks). Skipping init.
+2026-05-30 09:31:01,144 - WARNING -  * Debugger is active!
+2026-05-30 09:31:01,149 - INFO -  * Debugger PIN: 104-456-760
+2026-05-30 09:31:23,298 - INFO - Fetching market data for ^NSEI (period=5d, interval=15m)...
+C:\Users\DINESHMANI\Desktop\Pictures\Trade\backend\indicators.py:171: FutureWarning: Series.fillna with 'method' is deprecated and will raise in a future version. Use obj.ffill() or obj.bfill() instead.
+  df['VWAP'] = df['VWAP'].fillna(method='ffill').fillna(df['Close'])
+2026-05-30 09:31:24,099 - INFO - [TickEngine] Registered asset: ^NSEI @ 23609.30078125
+2026-05-30 09:31:24,099 - INFO - [get_node_proxy_quote] Fetching from Node proxy: http://localhost:3001/api/nse/quote?symbol=NIFTY
+2026-05-30 09:31:24,598 - INFO - [get_node_proxy_quote] Node proxy response status: 200
+2026-05-30 09:31:24,598 - INFO - [get_node_proxy_quote] Node proxy data: {'symbol': 'NIFTY', 'lastPrice': 23547.75, 'previousClose': 23907.15, 'change': -359.4, 'pChange': -1.5, 'open': 0, 'dayHigh': 24002.8, 'dayLow': 23484.75, 'volume': 0, 'totalTradedVolume': 0, 'source': 'yahoo'}
+C:\Users\DINESHMANI\Desktop\Pictures\Trade\backend\indicators.py:171: FutureWarning: Series.fillna with 'method' is deprecated and will raise in a future version. Use obj.ffill() or obj.bfill() instead.
+  df['VWAP'] = df['VWAP'].fillna(method='ffill').fillna(df['Close'])
+2026-05-30 09:31:25,523 - INFO - [VWAP] ^NSEI: market not opened, using prev_close 23907.15
+2026-05-30 09:31:25,532 - INFO - 127.0.0.1 - - [30/May/2026 09:31:25] "GET /api/market-data?ticker=^NSEI&period=5d&interval=15m&_t=1780113683282 HTTP/1.1" 200 -
+2026-05-30 09:31:53,291 - INFO - [get_node_proxy_quote] Fetching from Node proxy: http://localhost:3001/api/nse/quote?symbol=NIFTY
+2026-05-30 09:31:53,720 - INFO - [get_node_proxy_quote] Node proxy response status: 200
+2026-05-30 09:31:53,721 - INFO - [get_node_proxy_quote] Node proxy data: {'symbol': 'NIFTY', 'lastPrice': 23547.75, 'previousClose': 23907.15, 'change': -359.4, 'pChange': -1.5, 'open': 0, 'dayHigh': 24002.8, 'dayLow': 23484.75, 'volume': 0, 'totalTradedVolume': 0, 'source': 'yahoo'}
+C:\Users\DINESHMANI\Desktop\Pictures\Trade\backend\indicators.py:171: FutureWarning: Series.fillna with 'method' is deprecated and will raise in a future version. Use obj.ffill() or obj.bfill() instead.
+  df['VWAP'] = df['VWAP'].fillna(method='ffill').fillna(df['Close'])
+2026-05-30 09:31:54,630 - INFO - [VWAP] ^NSEI: market not opened, using prev_close 23907.15
+2026-05-30 09:31:54,633 - INFO - 127.0.0.1 - - [30/May/2026 09:31:54] "GET /api/market-data?ticker=^NSEI&period=5d&interval=15m&_t=1780113713279 HTTP/1.1" 200 -
+2026-05-30 09:32:23,301 - INFO - [get_node_proxy_quote] Fetching from Node proxy: http://localhost:3001/api/nse/quote?symbol=NIFTY
+2026-05-30 09:32:23,573 - INFO - [get_node_proxy_quote] Node proxy response status: 200
+2026-05-30 09:32:23,574 - INFO - [get_node_proxy_quote] Node proxy data: {'symbol': 'NIFTY', 'lastPrice': 23547.75, 'previousClose': 23907.15, 'change': -359.4, 'pChange': -1.5, 'open': 0, 'dayHigh': 24002.8, 'dayLow': 23484.75, 'volume': 0, 'totalTradedVolume': 0, 'source': 'yahoo'}
+C:\Users\DINESHMANI\Desktop\Pictures\Trade\backend\indicators.py:171: FutureWarning: Series.fillna with 'method' is deprecated and will raise in a future version. Use obj.ffill() or obj.bfill() instead.
+  df['VWAP'] = df['VWAP'].fillna(method='ffill').fillna(df['Close'])
+2026-05-30 09:32:24,305 - INFO - [VWAP] ^NSEI: market not opened, using prev_close 23907.15
+2026-05-30 09:32:24,312 - INFO - 127.0.0.1 - - [30/May/2026 09:32:24] "GET /api/market-data?ticker=^NSEI&period=5d&interval=15m&_t=1780113743280 HTTP/1.1" 200 -
+2026-05-30 09:32:53,308 - INFO - [get_node_proxy_quote] Fetching from Node proxy: http://localhost:3001/api/nse/quote?symbol=NIFTY
+2026-05-30 09:32:53,614 - INFO - [get_node_proxy_quote] Node proxy response status: 200
+2026-05-30 09:32:53,614 - INFO - [get_node_proxy_quote] Node proxy data: {'symbol': 'NIFTY', 'lastPrice': 23547.75, 'previousClose': 23907.15, 'change': -359.4, 'pChange': -1.5, 'open': 0, 'dayHigh': 24002.8, 'dayLow': 23484.75, 'volume': 0, 'totalTradedVolume': 0, 'source': 'yahoo'}
+C:\Users\DINESHMANI\Desktop\Pictures\Trade\backend\indicators.py:171: FutureWarning: Series.fillna with 'method' is deprecated and will raise in a future version. Use obj.ffill() or obj.bfill() instead.
+  df['VWAP'] = df['VWAP'].fillna(method='ffill').fillna(df['Close'])
+2026-05-30 09:32:54,285 - INFO - [VWAP] ^NSEI: market not opened, using prev_close 23907.15
+2026-05-30 09:32:54,294 - INFO - 127.0.0.1 - - [30/May/2026 09:32:54] "GET /api/market-data?ticker=^NSEI&period=5d&interval=15m&_t=1780113773289 HTTP/1.1" 200 -
+2026-05-30 09:32:55,854 - INFO -  * Detected change in 'C:\\Users\\DINESHMANI\\Desktop\\Pictures\\Trade\\backend\\ai_advisory.py', reloading
+2026-05-30 09:32:55,855 - INFO -  * Detected change in 'C:\\Users\\DINESHMANI\\Desktop\\Pictures\\Trade\\backend\\ai_advisory.py', reloading
+2026-05-30 09:32:55,856 - INFO -  * Detected change in 'C:\\Users\\DINESHMANI\\Desktop\\Pictures\\Trade\\backend\\ai_advisory.py', reloading
+2026-05-30 09:32:56,908 - INFO -  * Restarting with watchdog (windowsapi)
+Traceback (most recent call last):
+  File "C:\Users\DINESHMANI\Desktop\Pictures\Trade\backend\server.py", line 16, in <module>
+    from backend.ai_advisory import get_sherlock_verdict, get_sherlock_chat_response, get_sherlock_signal, validate_metrics_and_direction
+  File "C:\Users\DINESHMANI\Desktop\Pictures\Trade\backend\ai_advisory.py", line 11
+    RSI SAFETY GATES � FIX 2
+                     ^
+SyntaxError: invalid character '�' (U+2014)
+
+
+Log: file:///C:/Users/DINESHMANI/.gemini/antigravity/brain/641787a0-6251-4052-9205-d0e8b3ff2c8b/.system_generated/tasks/task-5358.log

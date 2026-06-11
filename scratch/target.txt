@@ -1,0 +1,188 @@
+        {activeTab === 'optionChain' && (
+          <div>
+            <div className="metric-grid">
+              <div className="metric-card">
+                <div className="metric-label">Max Pain Strike</div>
+                <div className="metric-value">{optionMetrics.maxPain.toLocaleString()}</div>
+                <div className="metric-sub">Balanced call/put pain index</div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-label">Put-Call Ratio (PCR)</div>
+                <div className="metric-value metric-val-green">{optionMetrics.pcr.toFixed(2)}</div>
+                <div className="metric-sub">
+                  {optionMetrics.pcr > 1.2 ? 'Bullish Write support' : optionMetrics.pcr < 0.8 ? 'Bearish Call resistance' : 'Balanced Sentiment'}
+                </div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-label">Atm IV</div>
+                <div className="metric-value metric-val-gold">{optionMetrics.atmIv}</div>
+                <div className="metric-sub">Low implied volatility regime</div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-label">Call Peak OI Strike</div>
+                <div className="metric-value" style={{ color: 'var(--red)' }}>{optionMetrics.callPeakOiStrike}</div>
+                <div className="metric-sub">Major overhead resistance</div>
+              </div>
+            </div>
+
+            {/* Range, IV Rank, Theta and Smart Money Highlights */}
+            {(() => {
+              const spot = indicators.spot_price || 23664;
+              const ivText = optionMetrics.atmIv || '13.2%';
+              const iv = parseFloat(ivText.replace('%', '')) / 100 || 0.132;
+              const weeklyMove1SD = spot * iv * Math.sqrt(7 / 365);
+              const weeklyMove2SD = weeklyMove1SD * 2;
+              
+              let putPeakOI = -1;
+              let putPeakStrike = spot - 200;
+              if (optionsChain && optionsChain.length > 0) {
+                optionsChain.forEach(item => {
+                  if (item.put_oi > putPeakOI) {
+                    putPeakOI = item.put_oi;
+                    putPeakStrike = item.strike;
+                  }
+                });
+              }
+
+              const ivPct = iv * 100;
+              const ivRank = Math.min(100, Math.max(0, Math.round(((ivPct - 10) / (30 - 10)) * 100)));
+
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                  {/* Expected Moves Banners */}
+                  <div className="card">
+                    <div className="card-header">
+                      <div className="card-title">🎯 Expected Multi-Expiry Moves</div>
+                    </div>
+                    <div className="card-body" style={{ padding: '12px 16px' }}>
+                      <div className="expected-move-container" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <div className="expected-move-box" style={{ background: 'rgba(255,255,255,0.02)', padding: 10, borderRadius: 6, textAlign: 'center', border: '1px solid rgba(255,255,255,0.04)' }}>
+                          <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Weekly expected move (1SD)</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--gold)', marginTop: 4 }}>
+                            ₹{Math.round(spot - weeklyMove1SD).toLocaleString('en-IN')} - ₹{Math.round(spot + weeklyMove1SD).toLocaleString('en-IN')}
+                          </div>
+                        </div>
+                        <div className="expected-move-box" style={{ background: 'rgba(255,255,255,0.02)', padding: 10, borderRadius: 6, textAlign: 'center', border: '1px solid rgba(255,255,255,0.04)' }}>
+                          <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Extreme volatility move (2SD)</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--red)', marginTop: 4 }}>
+                            ₹{Math.round(spot - weeklyMove2SD).toLocaleString('en-IN')} - ₹{Math.round(spot + weeklyMove2SD).toLocaleString('en-IN')}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: 11, background: 'rgba(255,255,255,0.01)', padding: '6px 12px', borderRadius: 4 }}>
+                        <span>🟢 Smart Money Support: <strong style={{ color: 'var(--green)' }}>₹{putPeakStrike.toLocaleString('en-IN')}</strong></span>
+                        <span>🔴 Smart Money Resistance: <strong style={{ color: 'var(--red)' }}>₹{optionMetrics.callPeakOiStrike || '24,000'}</strong></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* IV Rank & Theta Decay card */}
+                  <div className="card">
+                    <div className="card-header">
+                      <div className="card-title">⚡ Volatility Regime & Decay Analytics</div>
+                    </div>
+                    <div className="card-body" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div className="greek-meter-card">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                          <span>IV Rank:</span>
+                          <span style={{ color: ivRank > 50 ? 'var(--red)' : 'var(--green)', fontWeight: 'bold' }}>{ivRank}%</span>
+                        </div>
+                        <div className="confidence-bar-track" style={{ height: 6 }}>
+                          <div
+                            className="confidence-bar-fill"
+                            style={{
+                              width: `${ivRank}%`,
+                              background: ivRank > 50 ? '#ef4444' : '#22c55e'
+                            }}
+                          />
+                        </div>
+                        <div style={{ fontSize: 9, color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Low (10% IV)</span>
+                          <span>High (30% IV)</span>
+                        </div>
+                      </div>
+
+                      <div className="leakage-banner" style={{ margin: 0, padding: '8px 12px', background: 'rgba(245, 158, 11, 0.08)' }}>
+                        <span>⏳</span>
+                        <span>Theta Threat: <strong>MODERATE — Expiry in 3 days</strong>. Minimize long premium holding times.</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Table layout of Option Chain */}
+            <div className="card">
+              <div className="card-header">
+                <div className="card-title">📊 Strike Expiry Option Chain - {selectedAsset === '^NSEI' ? 'NIFTY 50' : selectedAsset === '^NSEBANK' ? 'BANK NIFTY' : selectedAsset.replace('.NS', '')}</div>
+              </div>
+              <div className="card-body" style={{ padding: 0 }}>
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Call OI</th>
+                        <th>Call LTP</th>
+                        <th>Call IV</th>
+                        <th style={{ textAlign: 'center' }}>Strike Price</th>
+                        <th>Put IV</th>
+                        <th>Put LTP</th>
+                        <th>Put OI</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {optionsChain.length > 0 ? (
+                        optionsChain.map((item, idx) => {
+                          const isCallItm = item.strike < indicators.spot_price;
+                          const isPutItm = item.strike > indicators.spot_price;
+                          
+                          const callFlash = optionFlashClasses[item.strike]?.call || '';
+                          const putFlash = optionFlashClasses[item.strike]?.put || '';
+                          
+                          return (
+                            <tr key={idx}>
+                              {/* Call Columns */}
+                              <td style={{ background: isCallItm ? 'rgba(0, 201, 167, 0.04)' : 'transparent' }}>
+                                {item.call_oi.toLocaleString()}
+                              </td>
+                              <td style={{ background: isCallItm ? 'rgba(0, 201, 167, 0.04)' : 'transparent' }} className={callFlash}>
+                                {item.call_ltp.toFixed(2)}
+                              </td>
+                              <td style={{ background: isCallItm ? 'rgba(0, 201, 167, 0.04)' : 'transparent' }}>
+                                {item.call_iv}
+                              </td>
+                              
+                              {/* Strike */}
+                              <td style={{ textAlign: 'center', fontWeight: 600, color: 'var(--gold-bright)' }}>
+                                {item.strike.toLocaleString()}
+                              </td>
+                              
+                              {/* Put Columns */}
+                              <td style={{ background: isPutItm ? 'rgba(255, 77, 77, 0.04)' : 'transparent' }}>
+                                {item.put_iv}
+                              </td>
+                              <td style={{ background: isPutItm ? 'rgba(255, 77, 77, 0.04)' : 'transparent' }} className={putFlash}>
+                                {item.put_ltp.toFixed(2)}
+                              </td>
+                              <td style={{ background: isPutItm ? 'rgba(255, 77, 77, 0.04)' : 'transparent' }}>
+                                {item.put_oi.toLocaleString()}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan="7" style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>
+                            No option chain data available.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}

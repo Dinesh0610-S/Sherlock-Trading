@@ -1,0 +1,91 @@
+"""
+SHERLOCK HOLMES PRE-MARKET MORNING BRIEF
+Backend module: live data fetching via Node proxy, and AI/rule-based analysis.
+
+Data sources (all server-side via Node proxy on port 3001):
+  - /api/morning/market-data  →  Yahoo Finance: US indices, commodities, NSE, VIX, USDINR
+  - /api/fiidii/today          →  NSE: FII/DII net buy/sell
+  - Google News RSS            →  Free live financial headlines
+
+Fallback to last-known values only when Node proxy is completely unreachable.
+"""
+import logging
+import requests
+import json
+import re
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
+from backend.ai_client import call_llm
+
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────
+#  LAST-RESORT FALLBACKS (used ONLY if Node proxy is DOWN)
+# ─────────────────────────────────────────────
+
+_FALLBACK_GLOBAL = {
+    "dow":    {"price": 0, "change": 0, "change_pct": 0},
+    "sp500":  {"price": 0, "change": 0, "change_pct": 0},
+    "nasdaq": {"price": 0, "change": 0, "change_pct": 0},
+}
+_FALLBACK_COMMODITIES = {
+    "crude": {"price": 0, "change_pct": 0},
+    "gold":  {"price": 0, "change_pct": 0},
+}
+_FALLBACK_NSE = {
+    "nifty_current":    0,
+    "banknifty_current": 0,
+    "sgx_nifty":        0,
+    "sgx_change_pct":   0,
+    "usdinr":           0,
+    "usdinr_change_pct": 0,
+    "vix":              0,
+    "vix_change_pct":   0,
+    "fii_dii": {"fii_net": 0, "dii_net": 0, "date": ""},
+}
+_FALLBACK_NEWS: List[Dict] = []
+
+# Shared session for all proxy calls
+_SESSION = requests.Session()
+_SESSION.headers.update({"Accept": "application/json"})
+
+NODE_PROXY = "http://localhost:3001"
+
+
+# ─────────────────────────────────────────────
+#  LIVE DATA FETCHING (via Node proxy)
+# ─────────────────────────────────────────────
+
+def _proxy_get(path: str, timeout: int = 6) -> Optional[Dict]:
+    """Fetch JSON from Node proxy with graceful failure."""
+    try:
+        resp = _SESSION.get(f"{NODE_PROXY}{path}", timeout=timeout)
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as e:
+        logger.warning(f"Node proxy GET {path} failed: {e}")
+    return None
+
+
+def fetch_all_market_data() -> Dict:
+    """
+    Fetch the single /api/morning/market-data endpoint from Node proxy.
+    This returns: global (dow/sp500/nasdaq), commodities (crude/gold),
+    india (nifty_current, sgx_nifty, vix, usdinr).
+    """
+    data = _proxy_get("/api/morning/market-data", timeout=10)
+    if data and data.get("global", {}).get("dow", {}).get("price", 0) > 0:
+        return data
+    logger.warning("Morning market data from Node proxy returned no price — using fallback.")
+    return {
+        "global":      _FALLBACK_GLOBAL,
+        "commodities": _FALLBACK_COMMODITIES,
+        "india":       _FALLBACK_NSE,
+    }
+
+
+def fetch_fii_dii() -> Dict:
+    """Fetch today's FII/DII from Node proxy."""
+    data = _proxy_get("/api/fiidii/today", timeout=6)
+    if data and "fi

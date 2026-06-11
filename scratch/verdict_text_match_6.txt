@@ -1,0 +1,25 @@
+{
+  "step_index": 9627,
+  "source": "MODEL",
+  "type": "PLANNER_RESPONSE",
+  "status": "DONE",
+  "created_at": "2026-06-10T06:28:14Z",
+  "content": "Good. Now I need to append the additional exports that `SherlockVerdict` needs. Let me add them to the file:",
+  "tool_calls": [
+    {
+      "name": "replace_file_content",
+      "args": {
+        "AllowMultiple": "false",
+        "Description": "\"Add isValidPrice, formatNumber, formatPrice, detectDirection, parseVerdict, parseEvidenceItem, DataStatusBanner, MTFConfirmationPanel, VerdictAccuracyTracker exports needed by SherlockVerdict\"",
+        "EndLine": "430",
+        "Instruction": "\"Append the additional helper functions and React components required by SherlockVerdict/index.jsx\"",
+        "ReplacementContent": "\"\\n// ─── SherlockVerdict Helpers ──────────────────────────────────────────────────\\n\\nimport React, { useState, useEffect, useRef, useCallback } from 'react';\\n\\n/**\\n * Returns true if value is a valid, finite, positive price number.\\n */\\nexport function isValidPrice(val) {\\n  return typeof val === 'number' && isFinite(val) && val > 0;\\n}\\n\\n/**\\n * Formats a number to a fixed number of decimal places, returning '—' if invalid.\\n * @param {number} val\\n * @param {number} decimals\\n */\\nexport function formatNumber(val, decimals = 2) {\\n  if (val === null || val === undefined || !isFinite(val)) return '—';\\n  return Number(val).toFixed(decimals);\\n}\\n\\n/**\\n * Formats a price with ₹ prefix, or returns '—' if invalid.\\n * @param {number} val\\n */\\nexport function formatPrice(val) {\\n  if (!isValidPrice(val)) return '—';\\n  return `₹${Number(val).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;\\n}\\n\\n/**\\n * Detects the market direction from market data indicators.\\n * Returns 'LONG', 'SHORT', or 'NEUTRAL'.\\n * @param {Object} data - Market data object\\n */\\nexport function detectDirection(data) {\\n  if (!data) return 'NEUTRAL';\\n\\n  let bullSignals = 0;\\n  let bearSignals = 0;\\n\\n  if (data.emaSignal === 'BULLISH') bullSignals++;\\n  if (data.emaSignal === 'BEARISH') bearSignals++;\\n  if (data.vwapSignal === 'ABOVE')  bullSignals++;\\n  if (data.vwapSignal === 'BELOW')  bearSignals++;\\n  if (data.rsi && data.rsi > 55)    bullSignals++;\\n  if (data.rsi && data.rsi < 45)    bearSignals++;\\n  if (data.pcr && data.pcr > 1.2)   bullSignals++;\\n  if (data.pcr && data.pcr < 0.8)   bearSignals++;\\n\\n  if (bullSignals > bearSignals + 1) return 'LONG';\\n  if (bearSignals > bullSignals + 1) return 'SHORT';\\n  return 'NEUTRAL';\\n}\\n\\n/**\\n * Parses a raw AI verdict text into structured { deduction, evidence[], checklist }.\\n * @param {string} text\\n */\\nexport function parseVerdict(text) {\\n  if (!tex\n<truncated 10564 bytes>",
+        "StartLine": "430",
+        "TargetContent": "\"\\n\"",
+        "TargetFile": "\"c:/Users/DINESHMANI/Desktop/Pictures/Trade/src/utils/sharedHelpers.jsx\"",
+        "toolAction": "\"Adding Sherlock helper exports\"",
+        "toolSummary": "\"Add React components and helpers to sharedHelpers\""
+      }
+    }
+  ]
+}

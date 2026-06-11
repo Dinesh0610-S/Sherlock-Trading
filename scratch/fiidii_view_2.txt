@@ -1,0 +1,71 @@
+5850:                         <div className="card" style={{ marginBottom: 0 }}>
+5851:                           <div className="card-header">
+5852:                             <div className="card-title">FII (Foreign Institutional)</div>
+5853:                           </div>
+5854:                           <div className="card-body">
+5855:                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+5856:                               <span style={{ color: 'var(--text-secondary)' }}>Buy volume</span>
+5857:                               <span style={{ color: '#fff', fontWeight: 500, fontFamily: 'IBM Plex Mono, monospace' }}>₹{formatINR(fiiBuy)} cr</span>
+5858:                             </div>
+5859:                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+5860:                               <span style={{ color: 'var(--text-secondary)' }}>Sell volume</span>
+5861:                               <span style={{ color: '#fff', fontWeight: 500, fontFamily: 'IBM Plex Mono, monospace' }}>₹{formatINR(fiiSell)} cr</span>
+5862:                             </div>
+5863:                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+5864:                               <span style={{ color: 'var(--text-secondary)' }}>Net flow</span>
+5865:                               <span style={{ color: fiiNet >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 'bold', fontFamily: 'IBM Plex Mono, monospace' }}>
+5866:                                 {fiiNet >= 0 ? '+' : '-'}₹{formatINR(fiiNet)} cr
+5867:                               </span>
+5868:                             </div>
+5869:                             <p style={{ color: 'var(--text-secondary)', fontSize: 12.5, lineHeight: 1.5, margin: 0 }}>
+5870:                               {fiiText}
+5871:                             </p>
+5872:                           </div>
+5873:                         </div>
+5874: 
+5875:                         {/* DII Column */}
+5876:                         <div className="card" style={{ marginBottom: 0 }}>
+5877:                           <div className="card-header">
+5878:                             <div className="card-title">DII (Domestic Institutional)</div>
+5879:                           </div>
+5880:                           <div className="card-body">
+5881:                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+5882:                               <span style={{ color: 'var(--text-secondary)' }}>Buy volume</span>
+5883:                               <span style={{ color: '#fff', fontWeight: 500, fontFamily: 'IBM Plex Mono, monospace' }}>₹{formatINR(diiBuy)} cr</span>
+5884:                             </div>
+5885:                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+5886:                               <span style={{ color: 'var(--text-secondary)' }}>Sell volume</span>
+5887:                               <span style={{ color: '#fff', fontWeight: 500, fontFamily: 'IBM Plex Mono, monospace' }}>₹{formatINR(diiSell)} cr</span>
+5888:                             </div>
+5889:                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+5890:                               <span style={{ color: 'var(--text-secondary)' }}>Net flow</span>
+5891:                               <span style={{ color: diiNet >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 'bold', fontFamily: 'IBM Plex Mono, monospace' }}>
+5892:                                 {diiNet >= 0 ? '+' : '-'}₹{formatINR(diiNet)} cr
+5893:                               </span>
+5894:                             </div>
+5895:                             <p style={{ color: 'var(--text-secondary)', fontSize: 12.5, lineHeight: 1.5, margin: 0 }}>
+5896:                               {diiText}
+5897:                             </p>
+5898:                           </div>
+5899:                         </div>
+5900:                       </div>
+5901: 
+5902:                       {/* Source badge */}
+5903:                       {api?.source && (
+5904:                         <div style={{ textAlign: 'right', fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+5905:                           Source: {api.source} · Last fetched: {api.last_updated}
+5906:                         </div>
+5907:                       )}
+5908:                     </div>
+5909:                   );
+5910:                 })()}
+5911: 
+5912:                 {fiiDiiActiveSubTab === 'trend' && (() => {
+5913:                   const reversedHistory = [...fiiDiiData].reverse();
+5914:                   
+5915:                   const chartData = reversedHistory.map(h => {
+5916:                     const parts = h.date.split('-');
+5917:                     const formattedDate = parts.length >= 2 ? `${parts[0]}-${parts[1]}` : h.date;
+5918:                     return {
+5919:                       date: formattedDate,
+5920:                       fii: h.fii_net,

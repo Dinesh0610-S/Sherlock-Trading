@@ -1,0 +1,94 @@
+=== SEARCH FOR: ClueBoard ===
+
+=== SEARCH FOR: Verdict ===
+Line 1172: // ── Sherlock Verdict Page Component ─────────────────────────────────────────
+Line 1173: const SherlockVerdictPage = () => {
+Line 1177: const [verdictText, setVerdictText] = useState('');
+Line 1186: const parseVerdict = (text) => {
+Line 1394: const generateVerdict = async (data) => {
+Line 1420: setVerdictText('Waiting for market data to load...');
+Line 1425: setVerdictText(
+Line 1430: '3. Click "Recalculate Verdict" to retry.'
+Line 1437: const verdict = await generateVerdict(marketData);
+Line 1438: setVerdictText(verdict);
+Line 1440: setVerdictText(`Failed to generate verdict: ${err.message}`);
+Line 1483: <div className="card-title">🔬 Sherlock's Analytical Verdict</div>
+Line 1485: {loading ? 'Deducting...' : '🔄 Recalculate Verdict'}
+Line 1513: const parsed = parseVerdict(verdictText);
+Line 1893: const [loadingVerdict, setLoadingVerdict] = useState(false);
+Line 1898: const [sherlockVerdict, setSherlockVerdict] = useState(
+Line 1903: `**The Deductive Verdict:** Strong Bullish Accumulation above 23600.\n\n` +
+Line 2275: handleRequestVerdict(json.indicators);
+Line 2536: const handleRequestVerdict = async (currentIndicators = indicators) => {
+Line 2537: setLoadingVerdict(true);
+Line 2556: setSherlockVerdict(json.verdict);
+Line 2561: setLoadingVerdict(false);
+Line 3211: 🔬 Sherlock Verdict
+Line 3316: {/* Verdict Banner */}
+Line 3319: 🔎 Current Footprint Verdict: {indicators.rsi > 70 ? 'Overbought' : indicators.rsi < 30 ? 'Oversold' : 'Neutral Crossover
+Line 3466: <button className="btn btn-gold" onClick={() => { setActiveTab('sherlockAnalysis'); handleRequestVerdict(); }} style={{ 
+Line 3535: {/* Tab 2: Sherlock Verdict */}
+Line 3537: <SherlockVerdictPage />
+Line 3653: <div id="rrVerdict" className="verdict-title">{rrResults.verdict}</div>
+Line 3666: <div className="card-title">📊 Mathematical Verdict Summary</div>
+Line 4611: {/* Summary Verdict Badge */}
+Line 4615: Combined Bias Verdict
+Line 5224: <span>🕵️‍♂️</span> Sherlock's Verdict (One-liner)
+Line 5914: : tab === 'log' ? 'Trade Log' : 'AI Verdict'}
+Line 6246: {/* Verdict Banner */}
+Line 6258: <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 
+
+=== SEARCH FOR: RRCalculator ===
+
+=== SEARCH FOR: OptionIntel ===
+
+=== SEARCH FOR: TradeJournal ===
+
+=== SEARCH FOR: FIIDIIFlow ===
+
+=== SEARCH FOR: MorningBrief ===
+Line 2006: const [morningBrief, setMorningBrief] = useState(null);
+Line 2451: const fetchMorningBrief = async () => {
+Line 2457: setMorningBrief(json);
+Line 4862: onClick={fetchMorningBrief} disabled={loadingBrief}>
+Line 4885: <button className="btn btn-secondary btn-sm" onClick={fetchMorningBrief} disabled={loadingBrief}>
+
+=== SEARCH FOR: PreMarketIntel ===
+Line 262: function PreMarketIntel() {
+Line 6409: {activeTab === 'preMarket' && <PreMarketIntel />}
+
+=== SEARCH FOR: Backtester ===
+Line 2010: // Backtester states
+Line 2467: // Backtester Functions
+Line 3232: 🔬 Backtester
+Line 5647: {/* Tab 8: Backtester */}
+
+=== SEARCH FOR: SherlockBot ===
+
+=== SEARCH FOR: OneTradePerdayGate ===
+
+=== SEARCH FOR: activeTab ===
+Line 1838: const [activeTab, setActiveTab] = useState('clueBoard');
+Line 2061: if (activeTab !== 'optionChain') return;
+Line 2067: }, [activeTab, selectedAsset, marketStatus.status]);
+Line 3207: <button className={`nav-tab ${activeTab === 'clueBoard' ? 'active' : ''}`} onClick={() => setActiveTab('clueBoard')}>
+Line 3210: <button className={`nav-tab ${activeTab === 'sherlockAnalysis' ? 'active' : ''}`} onClick={() => setActiveTab('sherlockA
+Line 3213: <button id="rr-calculator-tab" className={`nav-tab ${activeTab === 'rrCalculator' ? 'active' : ''}`} onClick={() => setA
+Line 3216: <button className={`nav-tab ${activeTab === 'optionChain' ? 'active' : ''}`} onClick={() => setActiveTab('optionChain')}
+Line 3219: <button id="journal-tab" className={`nav-tab ${activeTab === 'journal' ? 'active' : ''}`} onClick={() => setActiveTab('j
+Line 3222: <button id="fii-dii-tab" className={`nav-tab ${activeTab === 'fiiDii' ? 'active' : ''}`} onClick={() => setActiveTab('fi
+Line 3225: <button id="morning-brief-tab" className={`nav-tab ${activeTab === 'morningBrief' ? 'active' : ''}`} onClick={() => setA
+Line 3228: <button id="pre-market-tab" className={`nav-tab ${activeTab === 'preMarket' ? 'active' : ''}`} onClick={() => setActiveT
+Line 3231: <button id="backtester-tab" className={`nav-tab ${activeTab === 'backtester' ? 'active' : ''}`} onClick={() => setActive
+Line 3234: <button id="sherlock-bot-tab" className={`nav-tab ${activeTab === 'sherlockBot' ? 'active' : ''}`} onClick={() => setAct
+Line 3240: {activeTab === 'clueBoard' && (
+Line 3536: {activeTab === 'sherlockAnalysis' && (
+Line 3543: {activeTab === 'rrCalculator' && (
+Line 3777: {activeTab === 'optionChain' && (
+Line 3879: {activeTab === 'journal' && (
+Line 4199: {activeTab === 'fiiDii' && (
+Line 4784: {activeTab === 'morningBrief' && (() => {
+Line 5342: {activeTab === 'sherlockBot' && (
+Line 5648: {activeTab === 'backtester' && (() => {
+Line 6409: {activeTab === 'preMarket' && <PreMarketIntel />}
+

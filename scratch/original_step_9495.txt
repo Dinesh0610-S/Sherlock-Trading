@@ -1,0 +1,66 @@
+Created At: 2026-05-31T13:18:40Z
+Completed At: 2026-05-31T13:18:40Z
+File Path: `file:///c:/Users/DINESHMANI/Desktop/Pictures/Trade/src/App.jsx`
+Total Lines: 7873
+Total Bytes: 388384
+Showing lines 6220 to 6500
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+6220:                     )}
+6221:                   </div>
+6222:                 )}
+6223:               </div>
+6224:             )}
+6225:           </div>
+6226:         )}
+6227: 
+6228:         {/* Tab 7: Morning Brief */}
+6229:         {activeTab === 'morningBrief' && (() => {
+6230:           const raw = morningBrief?._raw || {};
+6231:           const pred = morningBrief?.nifty_open_prediction || {};
+6232:           const statusColor = morningBrief?.market_status?.includes('LONG') ? 'var(--green)'
+6233:             : morningBrief?.market_status?.includes('SHORT') ? 'var(--red)' : 'var(--gold)';
+6234:           const statusEmoji = morningBrief?.market_status?.includes('LONG') ? '🟢'
+6235:             : morningBrief?.market_status?.includes('SHORT') ? '🔴' : '🟡';
+6236:           const convBg = morningBrief?.conviction === 'HIGH'
+6237:             ? 'rgba(0,201,167,0.15)' : morningBrief?.conviction === 'MEDIUM'
+6238:             ? 'rgba(201,168,76,0.15)' : 'rgba(255,77,77,0.12)';
+6239:           const convColor = morningBrief?.conviction === 'HIGH' ? 'var(--green)'
+6240:             : morningBrief?.conviction === 'MEDIUM' ? 'var(--gold)' : 'var(--red)';
+6241: 
+6242:           return (
+6243:             <div>
+6244:               {/* ── Hero Header ── */}
+6245:               <div style={{
+6246:                 background: 'linear-gradient(135deg, #0a1628 0%, #0d2137 50%, #071a0e 100%)',
+6247:                 border: '1px solid var(--border-bright)',
+6248:                 borderRadius: 8,
+6249:                 padding: '24px 28px',
+6250:                 marginB
+<truncated 17397 bytes>
+75:                                 </div>
+6476: 
+6477:                                 {/* FII Read */}
+6478:                                 <div style={{
+6479:                                   background: (raw.fii_net || 0) >= 0 ? 'rgba(0,201,167,0.03)' : 'rgba(255,77,77,0.03)',
+6480:                                   border: `1px solid ${(raw.fii_net || 0) >= 0 ? 'rgba(0,201,167,0.15)' : 'rgba(255,77,77,0.15)'}`,
+6481:                                   borderRadius: 6, padding: '10px 12px'
+6482:                                 }}>
+6483:                                   <div style={{ color: 'var(--gold)', fontWeight: 'bold', fontSize: 11, textTransform: 'uppercase', marginBottom: 2 }}>
+6484:                                     🕵️‍♂️ Sherlock's FII Read
+6485:                                   </div>
+6486:                                   <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 12, lineHeight: '1.4' }}>
+6487:                                     {morningBrief.fii_interpretation}
+6488:                                   </p>
+6489:                                 </div>
+6490:                               </div>
+6491:                             </div>)}
+6492: 
+6493:                             {briefSubTab === 'global' && raw.news && raw.news.length > 0 && (
+6494:                               <div className="card" style={{ marginBottom: 0 }}>
+6495:                                 <div className="card-header">
+6496:                                   <div className="card-title">📰 Key Overnight News Headlines</div>
+6497:                                 </div>
+6498:                                 <div className="card-body" style={{ padding: 0 }}>
+6499:                                   {raw.news.slice(0, 4).map((item, idx) => (
+6500:                                     <div key={idx} style={{
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

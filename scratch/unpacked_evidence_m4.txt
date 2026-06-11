@@ -1,0 +1,1 @@
+I will search for the definitions of `DataStatusBanner`, `VerdictAccuracyTracker`, and `MTFConfirmationPanel` in `src/App.jsx`.

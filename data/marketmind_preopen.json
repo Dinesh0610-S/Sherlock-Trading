@@ -1,0 +1,80 @@
+{
+  "date": "2026-06-02",
+  "fii_dii": {
+    "fii_net": -8362.92,
+    "dii_net": 9589.32,
+    "segment": "Cash Segment (PROVISIONAL)",
+    "source": "via NSE/BSE provisional"
+  },
+  "gift_nifty": {
+    "price": 23526.5,
+    "prev_close": 23400.5,
+    "change_pts": 126.0,
+    "change_pct": 0.54,
+    "source": "via NSE IX"
+  },
+  "oi_gainers": [
+    { "symbol": "TCS", "price": 3850.2, "oi_change_pct": 14.5, "interpretation": "LONG_BUILDUP", "source": "via NSE Derivatives" },
+    { "symbol": "INFY", "price": 1420.5, "oi_change_pct": 12.2, "interpretation": "LONG_BUILDUP", "source": "via NSE Derivatives" },
+    { "symbol": "HCLTECH", "price": 1330.1, "oi_change_pct": 9.8, "interpretation": "LONG_BUILDUP", "source": "via NSE Derivatives" }
+  ],
+  "earnings_calendar": [
+    { "company": "Saraswati Saree Depot Ltd", "expected_eps": "1.50", "actual_eps": "1.85", "reaction": "BULLISH (+5.2%)", "source": "via NSE Corporate Filings" },
+    { "company": "Amit Spinning Industries Ltd", "expected_eps": "0.10", "actual_eps": "0.08", "reaction": "BEARISH (-2.1%)", "source": "via NSE Corporate Filings" },
+    { "company": "Canara Bank (CANBK)", "expected_eps": "28.50", "actual_eps": "N/A", "reaction": "Board meeting for fund raising today", "source": "via NSE Events" }
+  ],
+  "economic_calendar": [
+    { "event": "RBI MPC Interest Rate Decision", "time_ist": "June 5, 2026 (10:00 AM)", "previous": "5.25%", "expected": "5.25%", "actual": "Pending", "source": "via RBI" },
+    { "event": "Provisional GDP estimates (Q4 FY26)", "time_ist": "June 5, 2026 (5:30 PM)", "previous": "7.2%", "expected": "6.9%", "actual": "Pending", "source": "via MoSPI" },
+    { "event": "India CPI Inflation (YoY)", "time_ist": "June 12, 2026 (5:30 PM)", "previous": "4.83%", "expected": "4.65%", "actual": "Pending", "source": "via MoSPI" }
+  ],
+  "news_headlines": [
+    { "title": "IT Stocks Rebound: Nifty IT surges over 3% led by TCS and Infosys value buying", "source": "Economic Times", "timestamp": "June 2, 2026 16:30 IST" },
+    { "title": "Crude Oil prices slide 1.5% on US-Iran ceasefire deal hopes", "source": "Business Standard", "timestamp": "June 2, 2026 15:45 IST" },
+    { "title": "FII selling pressure continues with Rs 8,362 Cr outflow; DIIs cushion with Rs 9,589 Cr buy", "source": "MoneyControl", "timestamp": "June 2, 2026 18:00 IST" },
+    { "title": "India-US Trade Negotiations set for early June; optimism drives market momentum", "source": "Reuters", "timestamp": "June 2, 2026 14:15 IST" },
+    { "title": "Nifty snaps 4-day losing streak to close at 23,483 as Strait of Hormuz tensions ease", "source": "Bloomberg", "timestamp": "June 2, 2026 16:00 IST" }
+  ],
+  "ai_plan": {
+    "bias": "BULLISH",
+    "niftyLevel": "Watch 23,400 closely — if Nifty holds above 23,400 during the first 15 minutes, look for long setups targeting 23,550 and 23,620. If it breaks below 23,380, wait for a lower base support near 23,250.",
+    "trades": [
+      {
+        "stock": "TCS (Tata Consultancy Services)",
+        "entry": "Buy in the ₹3,830 - ₹3,850 zone",
+        "sl": "₹3,790 (close basis)",
+        "target": "₹3,940 / ₹3,980",
+        "rr": "1:2.5 (Risk-to-Reward)"
+      },
+      {
+        "stock": "INFY (Infosys)",
+        "entry": "Buy in the ₹1,410 - ₹1,420 zone",
+        "sl": "₹1,392",
+        "target": "₹1,455 / ₹1,470",
+        "rr": "1:2.2"
+      }
+    ],
+    "optionsPlay": "Buy Nifty 23500 CE (Current Weekly Expiry) at ₹110 if Nifty spot trades above 23,420 after 9:20 AM. Stop Loss at ₹75. Target at ₹170 / ₹210.",
+    "avoid": "Avoid taking heavy long positions in PSU Banks and Power Grid today, as FII selling remains concentrated in these cyclical heavyweights. Avoid entering positions prior to the 9:20 AM confirmation check.",
+    "openingExpectation": "Nifty is expected to open with a mild gap-up near ₹23,510 - ₹23,530, tracking positive GIFT Nifty and a strong recovery in US futures. Expect an initial volatile pullback, followed by bullish momentum led by the IT sector.",
+    "intraday_bias": "First 15 min likely to be highly volatile due to initial gap-up selling, followed by trending bullish momentum as the Nifty IT index finds support at its 50-EMA.",
+    "verdict": {
+      "verdict": "BULLISH",
+      "confidence": 78,
+      "checklist": {
+        "us_futures_positive": true,
+        "asia_green": true,
+        "gift_nifty_premium": true,
+        "fii_net_buyers": false,
+        "vix_below_15": false,
+        "no_negative_news": true
+      },
+      "support_1": 23350,
+      "support_2": 23230,
+      "resistance_1": 23620,
+      "resistance_2": 23680,
+      "gap_prediction": "GAP_UP",
+      "gap_magnitude": "+40 to +60 points"
+    }
+  }
+}

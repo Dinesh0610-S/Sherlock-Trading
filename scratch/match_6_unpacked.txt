@@ -1,0 +1,23 @@
+Created At: 2026-06-08T10:19:54Z
+Completed At: 2026-06-08T10:19:55Z
+
+				The command completed successfully.
+				Output:
+				
+src\App.jsx:280:function detectPattern(candles, vwap) {
+src\App.jsx:490:function buildFactorList({ pattern, newsSentiment, vwapPos, rsi, oiChange }) {
+src\App.jsx:508:function generate15MinStrategy(inputs) {
+src\App.jsx:666:function getISTMinutes() {
+src\App.jsx:672:function calculateRSI(candles, period = 14) {
+src\App.jsx:696:function calculateMACD(candles) {
+src\App.jsx:732:function calculateVWAP(candles) {
+src\App.jsx:746:function getTFTrend(candles) {
+src\App.jsx:769:function interpretOIChange(callOIChange, putOIChange, priceChange) {
+src\App.jsx:1124:function StrategyEngineDashboard({ spotPrice, mini = false }) {
+src\App.jsx:2093:function PreMarketIntel({ selectedAsset = '^NSEI' }) {
+src\App.jsx:3137:function parseVerdict(text) {
+src\App.jsx:10513:function computeClientEMA(prices, period) {
+src\App.jsx:10523:function computeClientRSI(prices, period = 14) {
+
+
+

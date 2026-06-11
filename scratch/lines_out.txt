@@ -1,0 +1,100 @@
+6300:                     id:    'global',
+6301:                     label: 'Global Oversight',
+6302:                     icon:  '🌐'
+6303:                   },
+6304:                   {
+6305:                     id:    'india',
+6306:                     label: 'India Ready',
+6307:                     icon:  '�                      {(briefSubTab === 'global' || briefSubTab === 'india') && (
+6308:                         <div className="flex flex-col gap-6 text-slate-300 font-sans leading-relaxed tracking-wide">
+6309:                           
+6310:                           {/* System Gateways Tracker (The One Trade Framework Directives) */}
+6311:                           <div className="border border-slate-800 bg-[#0b0f19] rounded-lg overflow-hidden">
+6312:                             <div className="border-b border-slate-800 bg-slate-900/50 px-4 py-2 flex items-center justify-between">
+6313:                               <span className="text-xs uppercase font-mono font-bold tracking-wider text-amber-500 flex items-center gap-1.5">
+6314:                                 <span>🛡️</span> The One Trade Framework Directives
+6315:                               </span>
+6316:                               <span className="text-[10px] uppercase font-mono text-slate-500 font-bold">SYSTEM GATEWAY STATUS: ONLINE</span>
+6317:                             </div>
+6318:                             <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-800">
+6319:                               <div className="p-4 bg-amber-950/5 border-l-4 border-l-amber-500">
+6320:                                 <span className="text-[11px] font-mono font-bold text-amber-500 block mb-1">🎯 ONE TRADE PER DAY LIMIT</span>
+6321:                                 <p className="text-xs text-slate-400">
+6322:                                   The gate locks permanently after 1 position. No re-entries, averaging, or second chances.
+6323:                                 </p>
+6324:                               </div>
+6325:                               <div className="p-4 bg-emerald-950/5 border-l-4 border-l-emerald-500">
+6326:                                 <span className="text-[11px] font-mono font-bold text-emerald-500 block mb-1">📈 MINIMUM 90% SETUP QUALITY</span>
+6327:                                 <p className="text-xs text-slate-400">
+6328:                                   Only setups crossing the 90-point checklist threshold are authorized. STAND DOWN if score is lower.
+6329:                                 </p>
+6330:                               </div>
+6331:                               <div className="p-4 bg-rose-950/5 border-l-4 border-l-rose-500">
+6332:                                 <span className="text-[11px] font-mono font-bold text-rose-500 block mb-1">🛑 ABSOLUTE SPOT COORDINATE INVALIDATION</span>
+6333:                                 <p className="text-xs text-slate-400">
+6334:                                   If spot price breaches invalidation level or 5-min candle closes beyond SL, close position immediately.
+6335:                                 </p>
+6336:                               </div>
+6337:                             </div>
+6338:                           </div>
+6339: 
+6340:                           {/* Macro Flow Grid (Middle Segment) */}
+6341:                           {briefSubTab === 'global' && (
+6342:                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+6343:                               {/* Overnight US & Global Markets */}
+6344:                               <div className="border border-slate-800 bg-[#0b0f19] rounded-lg overflow-hidden flex flex-col justify-between">
+6345:                                 <div className="border-b border-slate-800 bg-slate-900/50 px-4 py-3 flex items-center justify-between">
+6346:                                   <span className="text-xs uppercase font-mono font-bold text-slate-200">🌍 Overnight US & Global Markets</span>
+6347:                                   <button className="text-[10px] font-mono bg-slate-800 border border-slate-700 text-slate-300 hover:text-white px-2.5 py-1 rounded" onClick={fetchMorningBrief} disabled={loadingBrief}>
+6348:                                     {loadingBrief ? '...' : '↻ Refresh'}
+6349:                                   </button>
+6350:                                 </div>
+6351:                                 <div className="p-4 flex-1 flex flex-col gap-4">
+6352:                                   <div className="grid grid-cols-5 gap-3">
+6353:                                     {[
+6354:                                       { label: 'Dow Jones',  data: raw.dow,    suffix: '' },
+6355:                                       { label: 'S&P 500',    data: raw.sp500,  suffix: '' },
+6356:                                       { label: 'Nasdaq',     data: raw.nasdaq, suffix: '' },
+6357:                                       { label: 'Crude Oil',  data: raw.crude,  suffix: '/bbl', prefix: '$' },
+6358:                                       { label: 'Gold',       data: raw.gold,   suffix: '/oz',  prefix: '$' },
+6359:                                     ].map(({ label, data, suffix, prefix = '' }) => {
+6360:                                       const pct = data?.change_pct ?? 0;
+6361:                                       const color = pct > 0 ? 'text-[#00ff66]' : pct < 0 ? 'text-red-500' : 'text-slate-500';
+6362:                                       return (
+6363:                                         <div key={label} className="bg-slate-900/30 border border-slate-800/80 rounded-md p-2.5 flex flex-col justify-between">
+6364:                                           <span className="text-[9px] uppercase font-mono tracking-wider text-slate-500 block mb-1.5 truncate">{label}</span>
+6365:                                           <div>
+6366:                                             <span className={`${color} text-sm font-mono font-bold block mb-0.5`}>
+6367:                                               {pct > 0 ? '+' : ''}{pct.toFixed(2)}%
+6368:                                             </span>
+6369:                                             <span className="text-[10px] font-mono text-slate-400 block truncate">
+6370:                                               {prefix}{data?.price?.toLocaleString('en-IN', { maximumFractionDigits: 1 }) || '—'}{suffix}
+6371:                                             </span>
+6372:                                           </div>
+6373:                                         </div>
+6374:                                       );
+6375:                                     })}
+6376:                                   </div>
+6377:                                   
+6378:                                   {/* Global Sentiment */}
+6379:                                   {(() => {
+6380:                                     const bias = morningBrief.global_bias;
+6381:                                     const borderColor = bias === 'BULLISH' ? 'border-emerald-900/50' : bias === 'BEARISH' ? 'border-rose-900/50' : 'border-amber-900/50';
+6382:                                     const bgColor = bias === 'BULLISH' ? 'bg-emerald-950/10' : bias === 'BEARISH' ? 'bg-rose-950/10' : 'bg-amber-950/10';
+6383:                                     const textColor = bias === 'BULLISH' ? 'text-[#00ff66]' : bias === 'BEARISH' ? 'text-rose-500' : 'text-amber-500';
+6384:                                     return (
+6385:                                       <div className={`border ${borderColor} ${bgColor} rounded-md p-3.5`}>
+6386:                                         <span className={`text-xs uppercase font-mono font-bold ${textColor} block mb-1.5`}>
+6387:                                           🌍 Global Sentiment: {bias}
+6388:                                         </span>
+6389:                                         <p className="text-xs text-slate-300 leading-relaxed font-sans">{morningBrief.global_interpretation}</p>
+6390:                                       </div>
+6391:                                     );
+6392:                                   })()}
+6393: 
+6394:                                   {/* Catalyst */}
+6395:                                   <div className="bg-slate-900/20 border border-slate-800/60 rounded-md p-3.5">
+6396:                                     <span className="text-[10px] uppercase font-mono text-slate-500 block mb-1.5">⚡ Major Overnight Catalyst</span>
+6397:                                     <p className="text-xs text-white italic font-serif leading-relaxed">
+6398:                                       "{morningBrief.overnight_catalyst}"
+6399:                                     </p>

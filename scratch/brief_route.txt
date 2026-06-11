@@ -1,0 +1,44 @@
+Line 23: from backend.morning_brief import get_morning_brief
+  23: from backend.morning_brief import get_morning_brief
+  24: from backend.backtester import (
+  25: fetch_ohlcv, add_indicators, detect_signals, run_backtest, calc_stats, get_backtest_ai_analysis
+  26: )
+  27: from backend.tick_engine import tick_engine, get_market_status
+  28: from backend.stock_db import search_assets, get_fo_contracts, get_stock_count
+  29: from backend.init_stock_db import init_if_empty
+  30: 
+  31: import time
+  32: 
+  33: # Configure logging
+  34: logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+  35: logger = logging.getLogger(__name__)
+  36: 
+  37: # ── Legacy LIVE_DATA dict — proxied to TickEngine for backward-compat ─────────
+  38: # Other endpoints still use LIVE_DATA[ticker]['spot_price'] etc.
+  39: # We keep the dict but populate it from the TickEngine store.
+  40: live_data_lock = tick_engine._store_lock
+  41: 
+  42: class _LiveDataProxy:
+--------------------------------------------------
+Line 652: brief = get_morning_brief()
+  652: brief = get_morning_brief()
+  653: return jsonify(brief)
+  654: except Exception as e:
+  655: logger.error(f"Error generating morning brief: {e}")
+  656: return jsonify({"error": str(e)}), 500
+  657: 
+  658: @app.route('/api/backtest', methods=['POST'])
+  659: def api_backtest():
+  660: try:
+  661: data = request.json or {}
+  662: ticker = data.get("ticker", "^NSEI")
+  663: period = data.get("period", "6mo")
+  664: interval = data.get("interval", "1d")
+  665: strategy = data.get("strategy", "ALL")
+  666: sl_pct = float(data.get("sl_pct", 1.2))
+  667: t1_pct = float(data.get("t1_pct", 1.8))
+  668: t2_pct = float(data.get("t2_pct", 3.0))
+  669: t1_exit_pct = float(data.get("t1_exit_pct", 50.0))
+  670: capital = float(data.get("capital", 100000.0))
+  671: max_hold = int(data.get("max_hold", 5))
+--------------------------------------------------

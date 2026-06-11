@@ -1,0 +1,341 @@
+/* TradingViewChart.css
+   Professional dark-themed trading terminal styling
+   Matches the OptionX / TradingView aesthetic in the reference image.
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Inter:wght@300;400;500;600&display=swap');
+
+/* ── Wrapper ────────────────────────────────────────────────────────────── */
+.tv-chart-wrapper {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 520px;
+  background: #0B0E17;
+  border: 1px solid #1A1F2E;
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: 'Inter', sans-serif;
+  position: relative;
+}
+
+/* ── Header bar ─────────────────────────────────────────────────────────── */
+.tv-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 12px;
+  background: #0D1120;
+  border-bottom: 1px solid #1A1F2E;
+  min-height: 36px;
+  flex-wrap: wrap;
+}
+
+.tv-symbol-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'Inter', sans-serif;
+}
+
+.tv-exchange {
+  font-size: 10px;
+  color: #5A6272;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+.tv-symbol {
+  font-size: 13px;
+  font-weight: 600;
+  color: #D0D6E0;
+  letter-spacing: 0.3px;
+}
+
+.tv-res,
+.tv-type {
+  font-size: 11px;
+  color: #5A6272;
+}
+
+/* ── OHLC readout ───────────────────────────────────────────────────────── */
+.tv-ohlc {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
+.tv-ohlc-label {
+  color: #5A6272;
+  font-size: 10px;
+}
+
+.tv-ohlc-val {
+  color: #C9D1D9;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.tv-ohlc-change {
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 4px;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.tv-ohlc-placeholder {
+  color: #3A4055;
+  font-size: 11px;
+}
+
+.tv-bull { color: #26A69A !important; }
+.tv-bear { color: #EF5350 !important; }
+
+.tv-ohlc-change.tv-bull { background: rgba(38, 166, 154, 0.12); }
+.tv-ohlc-change.tv-bear { background: rgba(239, 83, 80, 0.12); }
+
+/* ── Indicator legend ───────────────────────────────────────────────────── */
+.tv-indicators {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.tv-ind {
+  font-size: 10px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.3px;
+  cursor: default;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.04);
+}
+
+/* ── Toolbar row ────────────────────────────────────────────────────────── */
+.tv-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  background: #0B0E17;
+  border-bottom: 1px solid #1A1F2E;
+  min-height: 32px;
+}
+
+.tv-tf-buttons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tv-tf-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #5A6272;
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  letter-spacing: 0.3px;
+}
+
+.tv-tf-btn:hover {
+  background: #1A1F2E;
+  color: #C9D1D9;
+}
+
+.tv-tf-btn.active {
+  background: #2A3350;
+  border-color: #3B82F6;
+  color: #60A5FA;
+  font-weight: 600;
+}
+
+.tv-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tv-chart-type {
+  font-size: 10px;
+  color: #3A4055;
+}
+
+.tv-loading-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3B82F6;
+  animation: tv-pulse 1s ease-in-out infinite;
+}
+
+@keyframes tv-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* ── Body ───────────────────────────────────────────────────────────────── */
+.tv-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Left toolbar ───────────────────────────────────────────────────────── */
+.tv-left-toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  background: #0D1120;
+  border-right: 1px solid #1A1F2E;
+  width: 32px;
+  min-width: 32px;
+}
+
+.tv-tool-btn {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: #3A4055;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+  padding: 0;
+  line-height: 1;
+}
+
+.tv-tool-btn:hover {
+  background: #1A1F2E;
+  color: #9BA3B2;
+}
+
+/* ── Chart area ─────────────────────────────────────────────────────────── */
+.tv-chart-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #0B0E17;
+}
+
+.tv-canvas-container {
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Overlays ───────────────────────────────────────────────────────────── */
+.tv-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(11, 14, 23, 0.85);
+  backdrop-filter: blur(4px);
+  z-index: 10;
+}
+
+.tv-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid #1A1F2E;
+  border-top-color: #3B82F6;
+  border-radius: 50%;
+  animation: tv-spin 0.8s linear infinite;
+}
+
+@keyframes tv-spin {
+  to { transform: rotate(360deg); }
+}
+
+.tv-overlay-text {
+  font-size: 12px;
+  color: #5A6272;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.tv-error-icon {
+  font-size: 20px;
+  color: #EF5350;
+}
+
+.tv-retry-btn {
+  background: #1A2436;
+  border: 1px solid #3B82F6;
+  color: #60A5FA;
+  font-size: 11px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  transition: background 0.15s;
+}
+
+.tv-retry-btn:hover {
+  background: #1E3050;
+}
+
+/* ── Watermark ──────────────────────────────────────────────────────────── */
+.tv-watermark {
+  position: absolute;
+  bottom: 40px;
+  right: 90px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.tv-wm-text {
+  font-size: 10px;
+  color: rgba(255,255,255,0.04);
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+/* ── Footer status bar ──────────────────────────────────────────────────── */
+.tv-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  background: #0D1120;
+  border-top: 1px solid #1A1F2E;
+  min-height: 24px;
+}
+
+.tv-footer-session {
+  font-size: 10px;
+  color: #3A4055;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.tv-footer-vol {
+  font-size: 10px;
+  color: #3A4055;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.tv-footer-powered {
+  font-size: 9px;
+  color: #2A3042;
+  letter-spacing: 0.5px;
+}

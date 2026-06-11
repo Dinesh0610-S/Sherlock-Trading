@@ -1,0 +1,1 @@
+I will view `src/App.jsx` from line 6220 to 6500 to understand the layout structure and navigation implementation for the Morning Brief tab.

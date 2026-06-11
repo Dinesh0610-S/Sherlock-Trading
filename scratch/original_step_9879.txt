@@ -1,0 +1,53 @@
+Created At: 2026-05-31T16:14:12Z
+Completed At: 2026-05-31T16:14:12Z
+File Path: `file:///c:/Users/DINESHMANI/Desktop/Pictures/Trade/src/App.jsx`
+Total Lines: 7873
+Total Bytes: 388374
+Showing lines 6345 to 6420
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+6345:                     <div className="tab-content">
+6346:                       {(briefSubTab === 'global' || briefSubTab === 'india') && (
+6347:                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))', gap: 20 }}>
+6348:                           
+6349:                           {/* Left Column: Global Intelligence & Market Context */}
+6350:                           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+6351:                             
+6352: 
+6353:                             {/* Overnight US Markets */}
+6354:                             {briefSubTab === 'global' && (
+6355:                               <div className="card" style={{ marginBottom: 0 }}>
+6356:                               <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+6357:                                 <div className="card-title">🌍 Overnight US & Global Markets</div>
+6358:                                 <button className="btn btn-secondary btn-sm" onClick={fetchMorningBrief} disabled={loadingBrief} style={{ fontSize: 11 }}>
+6359:                                   {loadingBrief ? '...' : '↻ Refresh'}
+6360:                                 </button>
+6361:                               </div>
+6362:                               <div className="card-body" style={{ padding: 16 }}>
+6363:                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 16 }}>
+6364:                     
+<truncated 3009 bytes>
+H' ? 'var(--green)' : bias === 'BEARISH' ? 'var(--red)' : 'var(--gold)';
+6398:                                   return (
+6399:                                     <div style={{ background: bgColor, border: `1px solid ${borderColor}`, borderRadius: 6, padding: '12px 14px', marginBottom: 12 }}>
+6400:                                       <div style={{ fontWeight: 'bold', color: textColor, fontSize: 12, textTransform: 'uppercase', marginBottom: 4 }}>
+6401:                                         🌍 Global Sentiment: {bias}
+6402:                                       </div>
+6403:                                       <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 12, lineHeight: '1.5' }}>
+6404:                                         {morningBrief.global_interpretation}
+6405:                                       </p>
+6406:                                     </div>
+6407:                                   );
+6408:                                 })()}
+6409: 
+6410:                                 {/* Catalyst */}
+6411:                                 <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: 6, padding: '12px 14px' }}>
+6412:                                   <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>⚡ Major Overnight Catalyst</span>
+6413:                                   <span style={{ color: '#fff', fontSize: 13, fontStyle: 'italic', lineHeight: 1.4 }}>
+6414:                                     "{morningBrief.overnight_catalyst}"
+6415:                                   </span>
+6416:                                 </div>
+6417:                               </div>
+6418:                             </div>)}
+6419: 
+6420:                             {/* India Market Context */}
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

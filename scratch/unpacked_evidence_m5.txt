@@ -1,0 +1,17 @@
+Created At: 2026-06-08T10:23:55Z
+Completed At: 2026-06-08T10:23:57Z
+
+				The command completed successfully.
+				Output:
+				
+src\App.jsx:2628:const DataStatusBanner = ({ status, errors, dataSource, lastUpdated, onRetry }) => {
+src\App.jsx:2819:const MTFConfirmationPanel = ({ symbol }) => {
+src\App.jsx:2965:const VerdictAccuracyTracker = () => {
+src\App.jsx:3114:const parseEvidenceItem = (item) => {
+src\App.jsx:3549:            <DataStatusBanner 
+src\App.jsx:3688:                              const detail = parseEvidenceItem(item);
+src\App.jsx:3755:        <MTFConfirmationPanel symbol={marketData?.symbol || 'NIFTY'} />
+src\App.jsx:3918:        <VerdictAccuracyTracker />
+
+
+

@@ -1,0 +1,1341 @@
+// ── INSTITUTIONAL-GRADE CANDLESTICK PATTERN RECOGNITION ENGINE ──────────────
+// Standalone utility module for pattern detection, confirmation, and strike selection
+
+export const EXPIRY_DAYS = {
+  'NIFTY':      2,  // Tuesday
+  'BANKNIFTY':  3,  // Wednesday
+  'FINNIFTY':   2,  // Tuesday
+  'MIDCPNIFTY': 1,  // Monday
+  'SENSEX':     4,  // Thursday (BSE)
+  'BANKEX':     1,  // Monday (BSE)
+};
+
+const NSE_HOLIDAYS = new Set([
+  // 2025
+  '2025-01-26','2025-03-14','2025-04-14','2025-04-18',
+  '2025-05-01','2025-08-15','2025-10-02','2025-10-21',
+  '2025-11-05','2025-12-25',
+  // 2026
+  '2026-01-26','2026-03-03','2026-03-26','2026-03-31',
+  '2026-04-03','2026-04-14','2026-05-01','2026-05-28',
+  '2026-06-26','2026-09-14','2026-10-02','2026-10-20',
+  '2026-11-10','2026-11-24','2026-12-25'
+]);
+
+export function getNextExpiry(instrument) {
+  const cleanInst = instrument.toUpperCase().replace('.NS', '').replace('.BO', '').replace('^', '');
+  let expiryDay = 2; // Default to Tuesday (Nifty)
+  if (cleanInst.includes('BANKNIFTY')) {
+    expiryDay = 3;
+  } else if (cleanInst.includes('MIDCPNIFTY') || cleanInst.includes('NSEMDCP50') || cleanInst.includes('NIFTYMID50')) {
+    expiryDay = 1;
+  } else if (cleanInst.includes('SENSEX') || cleanInst.includes('BSESN')) {
+    expiryDay = 4;
+  } else if (cleanInst.includes('BANKEX')) {
+    expiryDay = 1;
+  } else if (cleanInst.includes('FINNIFTY') || cleanInst.includes('NIFTY_FIN_SERVICE')) {
+    expiryDay = 2;
+  } else if (cleanInst.includes('NIFTY') || cleanInst.includes('NSEI')) {
+    expiryDay = 2;
+  } else {
+    expiryDay = EXPIRY_DAYS[cleanInst] ?? 2; // Fallback to Tuesday
+  }
+
+  const today = new Date();
+  const todayDay = today.getDay(); // 0=Sun,1=Mon,...,6=Sat
+  let daysUntil = (expiryDay - todayDay + 7) % 7;
+
+  if (daysUntil === 0) {
+    const nowIST = new Date(today.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const marketClose = new Date(nowIST);
+    marketClose.setHours(15, 30, 0, 0);
+    if (nowIST > marketClose) {
+      daysUntil = 7;
+    }
+  }
+
+  let expDate = new Date(today.getTime() + daysUntil * 24 * 60 * 60 * 1000);
+
+  // If expiry falls on a holiday or weekend, shift to preceding trading day
+  while (true) {
+    const dateStr = expDate.toISOString().slice(0, 10);
+    const day = expDate.getDay();
+    if (day === 0) {
+      expDate.setDate(expDate.getDate() - 2); // Sun -> Fri
+    } else if (day === 6) {
+      expDate.setDate(expDate.getDate() - 1); // Sat -> Fri
+    } else if (NSE_HOLIDAYS.has(dateStr)) {
+      expDate.setDate(expDate.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+
+  const oneDay = 24 * 60 * 60 * 1000;
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const expMidnight = new Date(expDate.getFullYear(), expDate.getMonth(), expDate.getDate());
+  const dte = Math.round((expMidnight - todayMidnight) / oneDay);
+
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const dayStr = String(expDate.getDate()).padStart(2, '0');
+  const monthStr = months[expDate.getMonth()];
+  const yearStr = expDate.getFullYear();
+  const label = `${dayStr}-${monthStr}-${yearStr}`;
+
+  return { date: expDate, dte: Math.max(0, dte), label };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LAYER 1: CANDLESTICK PATTERN DETECTION MATH
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function detectTrend(candles, period = 10) {
+  if (!candles || candles.length < period) return 'SIDEWAYS';
+  const slice = candles.slice(-period);
+  const n = slice.length;
+  const first = slice[0].close;
+  if (first === 0) return 'SIDEWAYS';
+
+  let sumX = 0;
+  let sumY = 0;
+  let sumXY = 0;
+  let sumXX = 0;
+
+  for (let i = 0; i < n; i++) {
+    const x = i;
+    const y = slice[i].close / first; // normalized close price
+    sumX += x;
+    sumY += y;
+    sumXY += x * y;
+    sumXX += x * x;
+  }
+
+  const denominator = (n * sumXX) - (sumX * sumX);
+  if (denominator === 0) return 'SIDEWAYS';
+  const slope = ((n * sumXY) - (sumX * sumY)) / denominator;
+
+  if (slope > 0.0003) return 'UP';
+  if (slope < -0.0003) return 'DOWN';
+  return 'SIDEWAYS';
+}
+
+export function calculateATR(candles, period = 14) {
+  if (!candles || candles.length === 0) return 0;
+  const n = candles.length;
+  let trSum = 0;
+  let count = 0;
+  for (let i = Math.max(0, n - period); i < n; i++) {
+    const c = candles[i];
+    let tr = c.high - c.low;
+    if (i > 0) {
+      const prevClose = candles[i - 1].close;
+      tr = Math.max(tr, Math.abs(c.high - prevClose), Math.abs(c.low - prevClose));
+    }
+    trSum += tr;
+    count++;
+  }
+  return count > 0 ? trSum / count : 0;
+}
+
+export function adaptiveThresholds(candles) {
+  const atr = calculateATR(candles, 14);
+  return {
+    atr,
+    minBodySize: atr * 0.15,
+    minWickSize: atr * 0.40
+  };
+}
+
+export function getPatternDisplay(candles) {
+  if (!candles || candles.length === 0) return "No data";
+  const trend = detectTrend(candles);
+  const last = candles[candles.length - 1];
+  const bodySize = Math.abs(last.close - last.open);
+  const atr = calculateATR(candles, 14);
+
+  if (trend === 'UP') {
+    if (bodySize > atr * 0.8) {
+      return "Bullish expansion";
+    } else {
+      return "Bullish trend consolidation";
+    }
+  } else if (trend === 'DOWN') {
+    if (bodySize > atr * 0.8) {
+      return "Bearish expansion";
+    } else {
+      return "Bearish trend consolidation";
+    }
+  } else {
+    if (bodySize > atr * 1.2) {
+      return "High volatility breakout attempt";
+    } else {
+      return "Neutral range consolidation";
+    }
+  }
+}
+
+export function calculateRSI(candles, period = 14) {
+  if (!candles || candles.length < period + 1) return 50;
+  const closes = candles.map(c => c.close);
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff > 0) gains += diff; else losses -= diff;
+  }
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+  for (let i = period + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    avgGain = (avgGain * (period - 1) + Math.max(diff, 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + Math.max(-diff, 0)) / period;
+  }
+  return avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+}
+
+function getStructureReading(candles) {
+  const c = candles[candles.length - 1];
+  const trend = detectTrend(candles);
+  const rsi = calculateRSI(candles, 14);
+  const r = c.high - c.low;
+  const bodySize = Math.abs(c.close - c.open);
+  const bodyPct = r > 0 ? Math.round(bodySize / r * 100) : 0;
+  const bullish = c.close >= c.open;
+
+  const watchFor = trend === 'DOWN' && rsi < 40
+    ? 'Hammer or Bullish Engulfing for CE entry'
+    : trend === 'UP' && rsi > 60
+    ? 'Shooting Star or Bearish Engulfing for PE entry'
+    : 'Inside Bar breakout or Marubozu for directional trade';
+
+  return {
+    name: bodyPct === 0 ? 'Doji' : `${bullish ? 'Bullish' : 'Bearish'} Candle (${bodyPct}% body)`,
+    type: 'INDECISION',
+    signal: 'WATCH',
+    strength: 'LOW',
+    confidence: 30,
+    candlesUsed: 1,
+    requiresTrendContext: false,
+    trendBoost: false,
+    trendWarning: false,
+    description:
+      `${trend} structure | RSI ${rsi.toFixed(0)} | Watch for: ${watchFor}`
+  };
+}
+
+export function calcSRLevels(candles) {
+  if (!candles || candles.length === 0) return { support: 0, resistance: 0 };
+  const slice = candles.slice(-20);
+  const swingHighs = slice
+    .filter((c,i,a) => i>0 && i<a.length-1 && c.high>a[i-1].high && c.high>a[i+1].high)
+    .map(c => c.high);
+  const sliceLows = slice
+    .filter((c,i,a) => i>0 && i<a.length-1 && c.low<a[i-1].low && c.low<a[i+1].low)
+    .map(c => c.low);
+  const spot = candles[candles.length-1].close;
+  
+  const validLows = sliceLows.filter(l => l < spot);
+  const validHighs = swingHighs.filter(h => h > spot);
+  
+  const support    = validLows.length > 0 ? Math.max(...validLows) : spot * 0.995;
+  const resistance = validHighs.length > 0 ? Math.min(...validHighs) : spot * 1.005;
+  return { support: Math.round(support), resistance: Math.round(resistance) };
+}
+
+export function buildTrendContext(candles) {
+  const direction = detectTrend(candles);
+  const sr = calcSRLevels(candles);
+  const spot = candles[candles.length - 1]?.close || 0;
+  const atSupport = Math.abs(spot - sr.support) / spot <= 0.005; // 0.5% threshold
+  const atResistance = Math.abs(spot - sr.resistance) / spot <= 0.005; // 0.5% threshold
+  return {
+    direction,
+    atSupport,
+    atResistance
+  };
+}
+
+export function calculateVWAP(candles) {
+  let totalVolumePrice = 0;
+  let totalVolume = 0;
+  let totalPrice = 0;
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+    const typicalPrice = (c.high + c.low + c.close) / 3;
+    totalVolumePrice += typicalPrice * (c.volume || 1);
+    totalVolume += (c.volume || 1);
+    totalPrice += typicalPrice;
+  }
+  return totalVolume > 0 ? (totalVolumePrice / totalVolume) : (totalPrice / candles.length);
+}
+
+// ─────────────────────────────────────────────────────────
+// PATTERN RELIABILITY WEIGHTS (used in confidence scoring)
+// ─────────────────────────────────────────────────────────
+
+export const PATTERN_RELIABILITY = {
+  // TIER 1 — 85–95% base confidence (strongest signals):
+  'Bullish Kicker':          92, 'Bearish Kicker':          93,
+  'Morning Doji Star':       88, 'Evening Doji Star':        88,
+  'Three White Soldiers':    87, 'Three Black Crows':        87,
+  'Abandoned Baby (Bull)':   89, 'Abandoned Baby (Bear)':    89,
+  'Morning Star':            85, 'Evening Star':             85,
+  'Bullish Engulfing':       83, 'Bearish Engulfing':        84,
+  'Three-Line Strike (Bull)':82, 'Three-Line Strike (Bear)': 82,
+
+  // TIER 2 — 75–84% base confidence (reliable):
+  'Dragonfly Doji':          80, 'Gravestone Doji':          80,
+  'Bullish Marubozu':        79, 'Bearish Marubozu':         79,
+  'Three Outside Up':        78, 'Three Outside Down':       78,
+  'Three Inside Up':         77, 'Three Inside Down':        77,
+  'Tri-Star (Bull)':         78, 'Tri-Star (Bear)':          78,
+  'Bullish Mat Hold':        76, 'Bearish Mat Hold':         76,
+  'Tweezer Bottom':          76, 'Tweezer Top':              76,
+  'Rising Three Methods':    75, 'Falling Three Methods':    75,
+  'Hammer':                  75, 'Shooting Star':            75,
+
+  // TIER 3 — 65–74% base confidence (confirmation needed):
+  'Inverted Hammer':         68, 'Hanging Man':              65,
+  'Paper Umbrella':          67, 'Piercing Line':            70,
+  'Dark Cloud Cover':        71, 'Harami (Bullish)':         68,
+  'Harami (Bearish)':        67, 'Harami Cross (Bull)':      72,
+  'Harami Cross (Bear)':     71, 'Spinning Top (Bull)':      60,
+  'Spinning Top (Bear)':     60, 'Long-Legged Doji':         58,
+};
+
+// ═══════════════════════════════════════════════════════
+// SECTION 1: SINGLE CANDLE PATTERNS (13 patterns)
+// ═══════════════════════════════════════════════════════
+
+function detectSingleCandle(c, trend) {
+  const results = [];
+  const b  = Math.abs(c.close - c.open);
+  const r  = c.high - c.low;
+  const uw = c.high - Math.max(c.open, c.close);
+  const lw = Math.min(c.open, c.close) - c.low;
+  const bull = c.close > c.open;
+  const bear = c.close < c.open;
+  if (r === 0) return results;
+
+  // ── 1. HAMMER ─────────────────────────────────────────
+  if (lw >= 2.0*b && uw <= r*0.15 && b >= r*0.05) {
+    const conf = lw >= 2.5*b ? 82 : 75;
+    results.push(make('Hammer','CE','BULLISH_REVERSAL', conf,
+      `Lower wick ${(lw/Math.max(b, 0.01)).toFixed(1)}× body — buyer rejection`));
+  }
+
+  // ── 2. INVERTED HAMMER ────────────────────────────────
+  if (uw >= 2.0*b && lw <= r*0.15 && b >= r*0.05) {
+    results.push(make('Inverted Hammer','CE','BULLISH_REVERSAL', 68,
+      'Upper wick probe — buyers tested higher, needs confirmation'));
+  }
+
+  // ── 3. DRAGONFLY DOJI ─────────────────────────────────
+  if (b <= r*0.06 && lw >= r*0.70 && uw <= r*0.10) {
+    results.push(make('Dragonfly Doji','CE','BULLISH_REVERSAL', 80,
+      'Full lower wick rejection — buyers absorbed all selling'));
+  }
+
+  // ── 4. BULLISH MARUBOZU ───────────────────────────────
+  if (bull && b >= r*0.90 && uw <= r*0.04 && lw <= r*0.04) {
+    results.push(make('Bullish Marubozu','CE','BULLISH_REVERSAL', 79,
+      'Full bull body — complete buyer dominance'));
+  }
+
+  // ── 5. PAPER UMBRELLA ─────────────────────────────────
+  if (lw >= 2.0*b && uw <= r*0.15 && trend.atSupport) {
+    results.push(make('Paper Umbrella','CE','BULLISH_REVERSAL', 67, // wait, weight is 67 in weights map
+      'Hammer at support — high probability bounce zone'));
+  }
+
+  // ── 6. SPINNING TOP (BULL) ────────────────────────────
+  if (b >= r*0.10 && b <= r*0.30 && uw >= r*0.25 && lw >= r*0.25
+      && trend.direction === 'DOWN') {
+    results.push(make('Spinning Top (Bull)','CE','BULLISH_REVERSAL', 60,
+      'Small body after downtrend — selling losing steam'));
+  }
+
+  // ── 7. HANGING MAN ────────────────────────────────────
+  if (lw >= 2.0*b && uw <= r*0.15 && b >= r*0.05
+      && trend.direction === 'UP') {
+    results.push(make('Hanging Man','PE','BEARISH_REVERSAL', 65,
+      'Long lower wick in uptrend — intraday selling appeared'));
+  }
+
+  // ── 8. SHOOTING STAR ──────────────────────────────────
+  if (uw >= 2.0*b && lw <= r*0.15 && b >= r*0.05) {
+    const conf = uw >= 2.5*b ? 82 : 75;
+    results.push(make('Shooting Star','PE','BEARISH_REVERSAL', conf,
+      `Upper wick ${(uw/Math.max(b, 0.01)).toFixed(1)}× body — buyer rejection at high`));
+  }
+
+  // ── 9. BEARISH MARUBOZU ───────────────────────────────
+  if (bear && b >= r*0.90 && uw <= r*0.04 && lw <= r*0.04) {
+    results.push(make('Bearish Marubozu','PE','BEARISH_REVERSAL', 79,
+      'Full bear body — complete seller dominance'));
+  }
+
+  // ── 10. GRAVESTONE DOJI ───────────────────────────────
+  if (b <= r*0.06 && uw >= r*0.70 && lw <= r*0.10) {
+    results.push(make('Gravestone Doji','PE','BEARISH_REVERSAL', 80,
+      'Full upper wick rejection — sellers absorbed all buying'));
+  }
+
+  // ── 11. SPINNING TOP (BEAR) ───────────────────────────
+  if (b >= r*0.10 && b <= r*0.30 && uw >= r*0.25 && lw >= r*0.25
+      && trend.direction === 'UP') {
+    results.push(make('Spinning Top (Bear)','PE','BEARISH_REVERSAL', 60,
+      'Small body after uptrend — buying losing steam'));
+  }
+
+  // ── 12. LONG-LEGGED DOJI ──────────────────────────────
+  if (b <= r*0.06 && uw >= r*0.30 && lw >= r*0.30) {
+    results.push(make('Long-Legged Doji','WATCH','INDECISION', 58,
+      'Equal long wicks — extreme indecision, breakout imminent'));
+  }
+
+  // ── 13. STANDARD DOJI ─────────────────────────
+  if (b <= r*0.04 && uw >= r*0.20 && lw >= r*0.20
+      && Math.abs(uw-lw) < r*0.12) {
+    results.push(make('Doji','WATCH','INDECISION', 50,
+      'Perfect equilibrium — next candle direction is the signal'));
+  }
+
+  return results;
+}
+
+// ═══════════════════════════════════════════════════════
+// SECTION 2: TWO-CANDLE PATTERNS (14 patterns)
+// ═══════════════════════════════════════════════════════
+
+function detectTwoCandle(p, c, trend) {
+  const results = [];
+  const pb = Math.abs(p.close - p.open);
+  const cb = Math.abs(c.close - c.open);
+  const pr = p.high - p.low;
+  const cr = c.high - c.low;
+  const pBull = p.close > p.open;
+  const pBear = p.close < p.open;
+  const cBull = c.close > c.open;
+  const cBear = c.close < c.open;
+  const pMid  = (p.open + p.close) / 2;
+  const tol   = Math.max(pr, cr) * 0.003; // 0.3% tolerance
+
+  // ── 14. BULLISH ENGULFING ─────────────────────────────
+  if (pBear && cBull && c.open < p.close && c.close > p.open) {
+    const volBoost = c.volume > p.volume * 1.2 ? 5 : 0;
+    const sizeBoost = cb > pb * 1.2 ? 3 : 0;
+    results.push(make('Bullish Engulfing','CE','BULLISH_REVERSAL',
+      Math.min(83 + volBoost + sizeBoost, 95),
+      `Full body wrap${volBoost>0?' + volume surge':''}${sizeBoost>0?' + strong body':''}`));
+  }
+
+  // ── 15. PIERCING LINE ─────────────────────────────────
+  if (pBear && cBull && c.open < p.low
+      && c.close > pMid && c.close < p.open) {
+    results.push(make('Piercing Line','CE','BULLISH_REVERSAL', 70,
+      `Green closes above ${((c.close-pMid)/Math.max(p.open-p.close, 0.01)*100).toFixed(0)}% of prior red body`));
+  }
+
+  // ── 16. TWEEZER BOTTOM ────────────────────────────────
+  if (Math.abs(p.low - c.low) < tol && pBear && cBull) {
+    results.push(make('Tweezer Bottom','CE','BULLISH_REVERSAL', 76,
+      `Double support test at ₹${p.low.toFixed(0)} — floor confirmed`));
+  }
+
+  // ── 17. HARAMI (BULLISH) ──────────────────────────────
+  if (pBear && cBull && c.open > p.close && c.close < p.open
+      && cb < pb * 0.50) {
+    results.push(make('Harami (Bullish)','CE','BULLISH_REVERSAL', 68,
+      `Small bull inside prior bear — selling momentum slowing`));
+  }
+
+  // ── 18. HARAMI CROSS (BULL) ───────────────────────────
+  const cDoji = cb <= (c.high-c.low) * 0.06;
+  if (pBear && cDoji && c.open > p.close && c.close < p.open) {
+    results.push(make('Harami Cross (Bull)','CE','BULLISH_REVERSAL', 72,
+      'Doji inside bearish body — complete indecision after selling'));
+  }
+
+  // ── 19. MATCHING LOW ──────────────────────────────────
+  if (Math.abs(p.close - c.close) < tol && pBear && cBear) {
+    results.push(make('Matching Low','CE','BULLISH_REVERSAL', 70,
+      `Equal closes at ₹${p.close.toFixed(0)} — support holding`));
+  }
+
+  // ── 20. KICKING (BULL) ────────────────────────────────
+  const pBearMaru = pBear && pb >= pr*0.88;
+  const cBullMaru = cBull && cb >= cr*0.88;
+  if (pBearMaru && cBullMaru && c.open > p.open) {
+    results.push(make('Kicking (Bull)','CE','BULLISH_REVERSAL', 92,
+      'Bearish marubozu → Bullish marubozu gap — institutional flip'));
+  }
+
+  // ── 21. BEARISH ENGULFING ─────────────────────────────
+  if (pBull && cBear && c.open > p.close && c.close < p.open) {
+    const volBoost = c.volume > p.volume * 1.2 ? 5 : 0;
+    results.push(make('Bearish Engulfing','PE','BEARISH_REVERSAL',
+      Math.min(84 + volBoost, 95),
+      `Distribution wrap${volBoost>0?' + volume confirmation':''}`));
+  }
+
+  // ── 22. DARK CLOUD COVER ──────────────────────────────
+  if (pBull && cBear && c.open > p.high
+      && c.close < pMid && c.close > p.open) {
+    results.push(make('Dark Cloud Cover','PE','BEARISH_REVERSAL', 71,
+      'Opens above prior high, closes below midpoint — distribution'));
+  }
+
+  // ── 23. TWEEZER TOP ───────────────────────────────────
+  if (Math.abs(p.high - c.high) < tol && pBull && cBear) {
+    results.push(make('Tweezer Top','PE','BEARISH_REVERSAL', 76,
+      `Double rejection at ₹${p.high.toFixed(0)} — resistance confirmed`));
+  }
+
+  // ── 24. HARAMI (BEARISH) ──────────────────────────────
+  if (pBull && cBear && c.open < p.close && c.close > p.open
+      && cb < pb * 0.50) {
+    results.push(make('Harami (Bearish)','PE','BEARISH_REVERSAL', 67,
+      'Small bear inside prior bull — buying momentum slowing'));
+  }
+
+  // ── 25. HARAMI CROSS (BEAR) ───────────────────────────
+  if (pBull && cDoji && c.open < p.close && c.close > p.open) {
+    results.push(make('Harami Cross (Bear)','PE','BEARISH_REVERSAL', 71,
+      'Doji inside bullish body — indecision after rally'));
+  }
+
+  // ── 26. MATCHING HIGH ─────────────────────────────────
+  if (Math.abs(p.close - c.close) < tol && pBull && cBull) {
+    results.push(make('Matching High','PE','BEARISH_REVERSAL', 69,
+      `Equal closes at ₹${p.close.toFixed(0)} — resistance holding`));
+  }
+
+  // ── 27. KICKING (BEAR) ────────────────────────────────
+  const pBullMaru = pBull && pb >= pr*0.88;
+  const cBearMaru = cBear && cb >= cr*0.88;
+  if (pBullMaru && cBearMaru && c.open < p.open) {
+    results.push(make('Kicking (Bear)','PE','BEARISH_REVERSAL', 93,
+      'Bullish marubozu → Bearish marubozu gap — institutional reversal'));
+  }
+
+  return results;
+}
+
+// ═══════════════════════════════════════════════════════
+// SECTION 3: THREE-CANDLE PATTERNS (16 patterns)
+// ═══════════════════════════════════════════════════════
+
+function detectThreeCandle(c1, c2, c3, trend) {
+  const results = [];
+  const b1=Math.abs(c1.close-c1.open), b2=Math.abs(c2.close-c2.open), b3=Math.abs(c3.close-c3.open);
+  const r1=c1.high-c1.low, r2=c2.high-c2.low, r3=c3.high-c3.low;
+  const bull1=c1.close>c1.open, bull2=c2.close>c2.open, bull3=c3.close>c3.open;
+  const bear1=c1.close<c1.open, bear2=c2.close<c2.open, bear3=c3.close<c3.open;
+  const doji2 = b2 <= r2 * 0.06;
+  const mid1  = (c1.open + c1.close) / 2;
+  const avgB  = (b1 + b2 + b3) / 3;
+
+  // ── 28. MORNING STAR ──────────────────────────────────
+  if (bear1 && b1 >= avgB*1.0
+      && b2 <= b1*0.35
+      && bull3 && c3.close > mid1) {
+    const recovery = (c3.close-c3.open)/Math.max(c1.open-c1.close, 0.01);
+    const conf = recovery >= 0.8 ? 89 : recovery >= 0.6 ? 85 : 78;
+    results.push(make('Morning Star','CE','BULLISH_REVERSAL', conf,
+      `${(recovery*100).toFixed(0)}% recovery — sell exhaustion confirmed`));
+  }
+
+  // ── 29. MORNING DOJI STAR ─────────────────────────────
+  if (bear1 && doji2 && bull3 && c3.close > mid1) {
+    results.push(make('Morning Doji Star','CE','BULLISH_REVERSAL', 88,
+      'Perfect doji pause → strong recovery — maximum reliability'));
+  }
+
+  // ── 30. THREE WHITE SOLDIERS ──────────────────────────
+  if (bull1 && bull2 && bull3
+      && c2.open > c1.open && c2.open < c1.close
+      && c3.open > c2.open && c3.open < c2.close
+      && (c1.high-c1.close) < b1*0.20
+      && (c2.high-c2.close) < b2*0.20
+      && (c3.high-c3.close) < b3*0.20) {
+    results.push(make('Three White Soldiers','CE','BULLISH_REVERSAL', 87,
+      'Three power-up candles closing near highs — sustained institutional buying'));
+  }
+
+  // ── 31. THREE INSIDE UP ───────────────────────────────
+  if (bear1 && bull2 && c2.open > c1.close && c2.close < c1.open
+      && bull3 && c3.close > c1.open) {
+    results.push(make('Three Inside Up','CE','BULLISH_REVERSAL', 77,
+      'Harami confirmed by follow-through close above C1 — reversal complete'));
+  }
+
+  // ── 32. THREE OUTSIDE UP ──────────────────────────────
+  if (bear1 && bull2 && c2.open <= c1.close && c2.close >= c1.open
+      && bull3 && c3.close > c2.close) {
+    results.push(make('Three Outside Up','CE','BULLISH_REVERSAL', 80,
+      'Engulfing + follow-through — reversal structure complete'));
+  }
+
+  // ── 33. ABANDONED BABY (BULL) ─────────────────────────
+  if (bear1 && doji2 && bull3
+      && c2.low > c1.low     // doji gaps down from C1
+      && c3.open > c2.high   // C3 gaps up from doji
+      && c3.close > mid1) {
+    results.push(make('Abandoned Baby (Bull)','CE','BULLISH_REVERSAL', 89,
+      'Island doji reversal — full gap isolation, highest reliability'));
+  }
+
+  // ── 34. TRI-STAR (BULL) ───────────────────────────────
+  const d1 = b1 <= r1*0.06, d3 = b3 <= r3*0.06;
+  if (d1 && doji2 && d3 && trend.direction === 'DOWN') {
+    results.push(make('Tri-Star (Bull)','CE','BULLISH_REVERSAL', 78,
+      'Three doji in downtrend — complete indecision → reversal likely'));
+  }
+
+  // ── 35. BULLISH MAT HOLD ──────────────────────────────
+  if (bull1 && b1 >= avgB*1.2
+      && bear2 && c2.high < c1.high && c2.low > c1.low
+      && bull3 && c3.close > c1.close) {
+    results.push(make('Bullish Mat Hold','CE','CONTINUATION', 76,
+      'Uptrend pause resumes — trend continuation confirmed'));
+  }
+
+  // ── 36. EVENING STAR ──────────────────────────────────
+  if (bull1 && b1 >= avgB*1.0
+      && b2 <= b1*0.35
+      && bear3 && c3.close < mid1) {
+    const drop = (c3.open-c3.close)/Math.max(c1.close-c1.open, 0.01);
+    const conf = drop >= 0.8 ? 87 : drop >= 0.6 ? 83 : 77;
+    results.push(make('Evening Star','PE','BEARISH_REVERSAL', conf,
+      `${(drop*100).toFixed(0)}% decline — buy exhaustion confirmed`));
+  }
+
+  // ── 37. EVENING DOJI STAR ─────────────────────────────
+  if (bull1 && doji2 && bear3 && c3.close < mid1) {
+    results.push(make('Evening Doji Star','PE','BEARISH_REVERSAL', 88,
+      'Perfect doji pause → strong selloff — maximum reliability'));
+  }
+
+  // ── 38. THREE BLACK CROWS ─────────────────────────────
+  if (bear1 && bear2 && bear3
+      && c2.open < c1.open && c2.open > c1.close
+      && c3.open < c2.open && c3.open > c2.close
+      && (c1.close-c1.low) < b1*0.20
+      && (c2.close-c2.low) < b2*0.20
+      && (c3.close-c3.low) < b3*0.20) {
+    results.push(make('Three Black Crows','PE','BEARISH_REVERSAL', 87,
+      'Three power-down candles — sustained institutional selling'));
+  }
+
+  // ── 39. THREE INSIDE DOWN ─────────────────────────────
+  if (bull1 && bear2 && c2.open < c1.close && c2.close > c1.open
+      && bear3 && c3.close < c1.open) {
+    results.push(make('Three Inside Down','PE','BEARISH_REVERSAL', 77,
+      'Bearish harami confirmed — distribution complete'));
+  }
+
+  // ── 40. THREE OUTSIDE DOWN ────────────────────────────
+  if (bull1 && bear2 && c2.open >= c1.close && c2.close <= c1.open
+      && bear3 && c3.close < c2.close) {
+    results.push(make('Three Outside Down','PE','BEARISH_REVERSAL', 80,
+      'Bearish engulf + follow-through — distribution confirmed'));
+  }
+
+  // ── 41. ABANDONED BABY (BEAR) ─────────────────────────
+  if (bull1 && doji2 && bear3
+      && c2.high < c1.high   // doji gaps up
+      && c3.open < c2.low    // C3 gaps down
+      && c3.close < mid1) {
+    results.push(make('Abandoned Baby (Bear)','PE','BEARISH_REVERSAL', 89,
+      'Island doji top — full gap isolation, highest reliability'));
+  }
+
+  // ── 42. TRI-STAR (BEAR) ───────────────────────────────
+  if (d1 && doji2 && d3 && trend.direction === 'UP') {
+    results.push(make('Tri-Star (Bear)','PE','BEARISH_REVERSAL', 78,
+      'Three doji in uptrend — complete indecision → reversal likely'));
+  }
+
+  // ── 43. BEARISH MAT HOLD ──────────────────────────────
+  if (bear1 && b1 >= avgB*1.2
+      && bull2 && c2.high < c1.high && c2.low > c1.low
+      && bear3 && c3.close < c1.close) {
+    results.push(make('Bearish Mat Hold','PE','CONTINUATION', 76,
+      'Downtrend pause resumes — bearish continuation confirmed'));
+  }
+
+  return results;
+}
+
+// ═══════════════════════════════════════════════════════
+// SECTION 4: MULTI-CANDLE / CONTINUATION (20 patterns)
+// ═══════════════════════════════════════════════════════
+
+function detectMultiCandle(candles, trend) {
+  const results = [];
+  const n = candles.length;
+  if (n < 5) return results;
+  const [c1,c2,c3,c4,c5] = candles.slice(-5);
+  const avgB = candles.slice(-5).reduce((s,c)=>s+Math.abs(c.close-c.open),0)/5;
+  const b = (c) => Math.abs(c.close - c.open);
+
+  // ── 44. RISING THREE METHODS ──────────────────────────
+  const allBearMiddle = [c2,c3,c4].every(c=>c.close<c.open);
+  const middleContained = [c2,c3,c4].every(c=>c.high<=c1.high && c.low>=c1.low);
+  if (c1.close>c1.open && b(c1)>=avgB*1.3
+      && allBearMiddle && middleContained
+      && c5.close>c5.open && c5.close>c1.close) {
+    results.push(make('Rising Three Methods','CE','CONTINUATION', 75,
+      '3-candle pause inside uptrend resolves higher — trend continues'));
+  }
+
+  // ── 45. FALLING THREE METHODS ─────────────────────────
+  const allBullMiddle = [c2,c3,c4].every(c=>c.close>c.open);
+  const middleContainedBear = [c2,c3,c4].every(c=>c.high<=c1.high && c.low>=c1.low);
+  if (c1.close<c1.open && b(c1)>=avgB*1.3
+      && allBullMiddle && middleContainedBear
+      && c5.close<c5.open && c5.close<c1.close) {
+    results.push(make('Falling Three Methods','PE','CONTINUATION', 75,
+      '3-candle bounce inside downtrend resolves lower — trend continues'));
+  }
+
+  // ── 46. UPSIDE TASUKI GAP ─────────────────────────────
+  if (c1.close>c1.open && c2.close>c2.open && c2.open>c1.close
+      && c3.close<c3.open && c3.open<c2.close && c3.close>c1.close) {
+    results.push(make('Upside Tasuki Gap','CE','CONTINUATION', 74,
+      'Gap holds after partial fill — bullish continuation'));
+  }
+
+  // ── 47. DOWNSIDE TASUKI GAP ───────────────────────────
+  if (c1.close<c1.open && c2.close<c2.open && c2.open<c1.close
+      && c3.close>c3.open && c3.open>c2.close && c3.close<c1.close) {
+    results.push(make('Downside Tasuki Gap','PE','CONTINUATION', 74,
+      'Gap holds after partial fill — bearish continuation'));
+  }
+
+  // ── 48. ON-NECK LINE (BULL) ───────────────────────────
+  if (c4.close<c4.open && b(c4)>=avgB*1.1
+      && c5.close>c5.open
+      && Math.abs(c5.close - c4.low) < (c4.high-c4.low)*0.015) {
+    results.push(make('On-Neck Line (Bull)','CE','CONTINUATION', 68,
+      'Downtrend stall at prior close — potential reversal probe'));
+  }
+
+  // ── 49. ON-NECK LINE (BEAR) ───────────────────────────
+  if (c4.close>c4.open && b(c4)>=avgB*1.1
+      && c5.close<c5.open
+      && Math.abs(c5.close - c4.high) < (c4.high-c4.low)*0.015) {
+    results.push(make('On-Neck Line (Bear)','PE','CONTINUATION', 68,
+      'Uptrend stall at prior close — potential reversal probe'));
+  }
+
+  // ── 50. IN-NECK LINE (BULL) ───────────────────────────
+  if (c4.close<c4.open && b(c4)>=avgB*1.1
+      && c5.close>c5.open
+      && c5.close > c4.low && c5.close < c4.close
+      && c5.close < (c4.open+c4.close)/2) {
+    results.push(make('In-Neck Line (Bull)','CE','CONTINUATION', 69,
+      'Closes just above prior close — weak recovery, watch direction'));
+  }
+
+  // ── 51. IN-NECK LINE (BEAR) ───────────────────────────
+  if (c4.close>c4.open && b(c4)>=avgB*1.1
+      && c5.close<c5.open
+      && c5.close < c4.high && c5.close > c4.close) {
+    results.push(make('In-Neck Line (Bear)','PE','CONTINUATION', 69,
+      'Closes just below prior close — weak rebound, bearish likely'));
+  }
+
+  // ── 52. THRUSTING (BULL) ──────────────────────────────
+  if (c4.close<c4.open && b(c4)>=avgB*1.0
+      && c5.close>c5.open && c5.open < c4.close
+      && c5.close > c4.close && c5.close < (c4.open+c4.close)/2) {
+    results.push(make('Thrusting (Bull)','CE','CONTINUATION', 70,
+      'Closes near midpoint from below — insufficient reversal, continuation likely'));
+  }
+
+  // ── 53. THRUSTING (BEAR) ──────────────────────────────
+  if (c4.close>c4.open && b(c4)>=avgB*1.0
+      && c5.close<c5.open && c5.open > c4.close
+      && c5.close < c4.close && c5.close > (c4.open+c4.close)/2) {
+    results.push(make('Thrusting (Bear)','PE','CONTINUATION', 70,
+      'Closes near midpoint from above — insufficient bounce, bearish likely'));
+  }
+
+  // ── 54. LADDER BOTTOM ─────────────────────────────────
+  if ([c1,c2,c3,c4].every(c=>c.close<c.open)
+      && c5.close>c5.open && b(c5) >= avgB*0.8) {
+    results.push(make('Ladder Bottom','CE','BULLISH_REVERSAL', 76,
+      '4 red + indecision → reversal — exhaustion complete'));
+  }
+
+  // ── 55. LADDER TOP ──────────────────────────
+  if ([c1,c2,c3,c4].every(c=>c.close>c.open)
+      && c5.close<c5.open && b(c5) >= avgB*0.8) {
+    results.push(make('Ladder Top','PE','BEARISH_REVERSAL', 76,
+      '4 green + indecision → reversal — exhaustion complete'));
+  }
+
+  // ── 56. THREE-LINE STRIKE (BULL) ──────────────────────
+  if ([c1,c2,c3].every(c=>c.close>c.open)
+      && c4.close<c4.open
+      && c4.open > c3.close && c4.close < c1.open) {
+    results.push(make('Three-Line Strike (Bull)','CE','CONTINUATION', 82,
+      '3 greens engulfed by red — bear trap, bullish continuation'));
+  }
+
+  // ── 57. THREE-LINE STRIKE (BEAR) ──────────────────────
+  if ([c1,c2,c3].every(c=>c.close<c.open)
+      && c4.close>c4.open
+      && c4.open < c3.close && c4.close > c1.open) {
+    results.push(make('Three-Line Strike (Bear)','PE','CONTINUATION', 82,
+      '3 reds engulfed by green — bull trap, bearish continuation'));
+  }
+
+  // ── 58. BREAKAWAY (BULL) ──────────────────────────────
+  if (c1.close<c1.open && c2.open < c1.close  // gap down
+      && [c2,c3,c4].every(c=>c.close<c.open)
+      && c5.close>c5.open && c5.close > c2.open) {
+    results.push(make('Breakaway (Bull)','CE','BULLISH_REVERSAL', 76,
+      'Gap + 3 candles + strong reversal — breakaway bottom'));
+  }
+
+  // ── 59. BREAKAWAY (BEAR) ──────────────────────────────
+  if (c1.close>c1.open && c2.open > c1.close
+      && [c2,c3,c4].every(c=>c.close>c.open)
+      && c5.close<c5.open && c5.close < c2.open) {
+    results.push(make('Breakaway (Bear)','PE','BEARISH_REVERSAL', 76,
+      'Gap + 3 candles + strong reversal down — breakaway top'));
+  }
+
+  // ── 60. SIDE-BY-SIDE WHITE (BULL) ─────────────────────
+  if (c1.close>c1.open && c2.open>c1.close  // gap up
+      && c3.close>c3.open
+      && Math.abs(c2.open-c3.open) < (c2.high-c2.low)*0.10
+      && Math.abs(b(c2)-b(c3)) < avgB*0.15) {
+    results.push(make('Side-by-Side White','CE','CONTINUATION', 74,
+      'Two gap-up green candles side by side — strong bullish continuation'));
+  }
+
+  // ── 61. SIDE-BY-SIDE BLACK ────────────────────────────
+  if (c1.close<c1.open && c2.open<c1.close
+      && c3.close<c3.open
+      && Math.abs(c2.open-c3.open) < (c2.high-c2.low)*0.10
+      && Math.abs(b(c2)-b(c3)) < avgB*0.15) {
+    results.push(make('Side-by-Side Black','PE','CONTINUATION', 74,
+      'Two gap-down red candles side by side — strong bearish continuation'));
+  }
+
+  // ── 62. HIKKAKE PATTERN (BULL) ────────────────────────
+  const insideBar = c2.high < c1.high && c2.low > c1.low;
+  if (insideBar && c3.low < c2.low  // false break down
+      && c4.close > c1.high) {       // reversal above C1 high
+    results.push(make('Hikkake (Bull)','CE','BULLISH_REVERSAL', 77,
+      'False breakdown reversal — trapped shorts, CE entry'));
+  }
+
+  // ── 63. HIKKAKE PATTERN (BEAR) ────────────────────────
+  if (insideBar && c3.high > c2.high // false break up
+      && c4.close < c1.low) {         // reversal below C1 low
+    results.push(make('Hikkake (Bear)','PE','BEARISH_REVERSAL', 77,
+      'False breakout reversal — trapped longs, PE entry'));
+  }
+
+  return results;
+}
+
+// ─────────────────────────────────────────────────────────
+// CONTEXT BOOST ENGINE
+// ─────────────────────────────────────────────────────────
+
+export function applyContextBoost(pattern, ctx) {
+  let boost = 0;
+  const notes = [];
+
+  // Volume confirms direction:
+  if (ctx.volumeRatio >= 1.5 && pattern.signal !== 'WATCH') {
+    boost += 5; notes.push(`Vol ${ctx.volumeRatio.toFixed(1)}× confirms`);
+  }
+  if (ctx.volumeRatio >= 2.5) {
+    boost += 4; notes.push('Institutional surge');
+  }
+  if (ctx.volumeRatio < 0.6) {
+    boost -= 8; notes.push('Low volume — weak signal');
+  }
+
+  // RSI alignment:
+  if (pattern.signal === 'CE' && ctx.rsi < 40) {
+    boost += 6; notes.push(`RSI ${ctx.rsi.toFixed(0)} oversold`);
+  }
+  if (pattern.signal === 'CE' && ctx.rsi > 65) {
+    boost -= 8; notes.push(`RSI ${ctx.rsi.toFixed(0)} overbought — late entry`);
+  }
+  if (pattern.signal === 'PE' && ctx.rsi > 65) {
+    boost += 6; notes.push(`RSI ${ctx.rsi.toFixed(0)} overbought`);
+  }
+  if (pattern.signal === 'PE' && ctx.rsi < 35) {
+    boost -= 8; notes.push(`RSI ${ctx.rsi.toFixed(0)} oversold — late entry`);
+  }
+
+  // MACD direction:
+  const macdBull = ctx.macdHist > 0 || ctx.macdRising;
+  const macdBear = ctx.macdHist < 0 && !ctx.macdRising;
+  if (pattern.signal === 'CE' && macdBull) { boost += 4; notes.push('MACD confirms'); }
+  if (pattern.signal === 'PE' && macdBear) { boost += 4; notes.push('MACD confirms'); }
+  if (pattern.signal === 'CE' && macdBear) { boost -= 5; }
+  if (pattern.signal === 'PE' && macdBull) { boost -= 5; }
+
+  // VWAP position:
+  if (pattern.signal === 'CE' && ctx.aboveVwap) { boost += 3; notes.push('Above VWAP'); }
+  if (pattern.signal === 'PE' && !ctx.aboveVwap){ boost += 3; notes.push('Below VWAP'); }
+  if (pattern.signal === 'CE' && !ctx.aboveVwap){ boost -= 4; }
+  if (pattern.signal === 'PE' && ctx.aboveVwap) { boost -= 4; }
+
+  // Trend alignment (15m):
+  if (pattern.type === 'BULLISH_REVERSAL' && ctx.trend15m === 'DOWN') {
+    boost += 5; notes.push('Valid reversal context');
+  }
+  if (pattern.type === 'BEARISH_REVERSAL' && ctx.trend15m === 'UP') {
+    boost += 5; notes.push('Valid reversal context');
+  }
+  if (pattern.type === 'CONTINUATION') {
+    if (pattern.signal === 'CE' && ctx.trend15m === 'UP')   { boost += 5; }
+    if (pattern.signal === 'PE' && ctx.trend15m === 'DOWN') { boost += 5; }
+  }
+
+  // Support/Resistance:
+  if (pattern.signal === 'CE' && ctx.atSupport)    { boost += 6; notes.push('At support'); }
+  if (pattern.signal === 'PE' && ctx.atResistance) { boost += 6; notes.push('At resistance'); }
+  if (pattern.signal === 'CE' && ctx.atResistance) { boost -= 5; notes.push('At resistance — CE entry tight'); }
+
+  // MTF confirmation (15m + 1h agree):
+  if (pattern.signal === 'CE' && ctx.trend1h === 'UP' && ctx.trend15m !== 'DOWN') {
+    boost += 4; notes.push('1h trend aligned');
+  }
+  if (pattern.signal === 'PE' && ctx.trend1h === 'DOWN' && ctx.trend15m !== 'UP') {
+    boost += 4; notes.push('1h trend aligned');
+  }
+
+  const finalConf = Math.min(Math.max(pattern.confidence + boost, 10), 98);
+
+  return {
+    ...pattern,
+    confidence:     finalConf,
+    contextBoost:   boost,
+    contextNotes:   notes,
+    strength:       finalConf >= 85 ? 'HIGH' : finalConf >= 75 ? 'MEDIUM' : 'LOW',
+    // Only valid signal if confidence reaches threshold:
+    signal: finalConf >= 75 
+      ? pattern.signal 
+      : 'WATCH', // demote to WATCH if boost can't lift it
+  };
+}
+
+// ─────────────────────────────────────────────────────────
+// MASTER SCANNER — runs all 63 patterns
+// ─────────────────────────────────────────────────────────
+
+export function scanAllPatterns(candles, ctx) {
+  if (candles.length < 5) return emptyResult();
+
+  const n   = candles.length;
+  const c1  = candles[n-3];
+  const c2  = candles[n-2];
+  const c3  = candles[n-1];
+  const trend = buildTrendContext(candles);
+
+  // Detect raw patterns:
+  const raw = [
+    ...detectSingleCandle(c3, trend),
+    ...detectTwoCandle(c2, c3, trend),
+    ...detectThreeCandle(c1, c2, c3, trend),
+    ...detectMultiCandle(candles, trend),
+  ];
+
+  // Apply context boost to each:
+  const boosted = raw.map(p => applyContextBoost(p, ctx));
+
+  // Only keep ≥75% after boost:
+  const valid = boosted
+    .filter(p => p.confidence >= 75 && p.signal !== 'WATCH')
+    .sort((a,b) => b.confidence - a.confidence);
+
+  // Deduplicate — keep one per pattern name:
+  const seen = new Set();
+  const deduped = valid.filter(p => {
+    if (seen.has(p.name)) return false;
+    seen.add(p.name);
+    return true;
+  });
+
+  // CE vs PE vote:
+  const cePatterns = deduped.filter(p => p.signal === 'CE');
+  const pePatterns = deduped.filter(p => p.signal === 'PE');
+
+  // Weighted vote — higher confidence = higher weight:
+  const ceWeight = cePatterns.reduce((s,p) => s + p.confidence, 0);
+  const peWeight = pePatterns.reduce((s,p) => s + p.confidence, 0);
+
+  const topPattern = deduped[0] ?? null;
+  const direction =
+    ceWeight > peWeight * 1.2 ? 'CE' :
+    peWeight > ceWeight * 1.2 ? 'PE' : 'AVOID';
+
+  // Pattern score for confidence engine (0–10):
+  const patternScore = topPattern
+    ? Math.round((topPattern.confidence - 75) / 25 * 10)
+    : 0;
+
+  return {
+    allPatterns:  deduped,
+    cePatterns,
+    pePatterns,
+    topPattern,
+    direction,
+    ceWeight,
+    peWeight,
+    patternScore,       // feed into confidence engine
+    topConfidence:      topPattern?.confidence ?? 0,
+    topName:            topPattern?.name ?? 'None ≥75%',
+    totalDetected:      raw.length,
+    validAbove75:       deduped.length,
+  };
+}
+
+// Helpers:
+function make(name, signal, type, confidence, description) {
+  return {
+    name, signal, type, confidence,
+    strength: confidence >= 85 ? 'HIGH' : confidence >= 75 ? 'MEDIUM' : 'LOW',
+    description, trendBoost: false, trendWarning: false,
+    barsAgo: 0, finalScore: confidence, contextFactors: [description],
+  };
+}
+
+function emptyResult() {
+  return {
+    allPatterns:  [],
+    cePatterns:   [],
+    pePatterns:   [],
+    topPattern:   null,
+    direction:    'AVOID',
+    ceWeight:     0,
+    peWeight:     0,
+    patternScore: 0,
+    topConfidence: 0,
+    topName:      'None ≥75%',
+    totalDetected: 0,
+    validAbove75: 0,
+  };
+}
+
+export function scanCandles(candles, ctx) {
+  if (!candles || candles.length < 5) {
+    return candles && candles.length > 0
+      ? [getStructureReading(candles)]
+      : [{
+          name: 'No Data',
+          type: 'INDECISION',
+          signal: 'WATCH',
+          strength: 'LOW',
+          confidence: 0,
+          candlesUsed: 0,
+          requiresTrendContext: false,
+          trendBoost: false,
+          trendWarning: false,
+          description: 'Awaiting candle data'
+        }];
+  }
+
+  if (!ctx) {
+    const indicators = calculateIndicatorsForFallback(candles);
+    const trendCtx = buildTrendContext(candles);
+    const spot = candles[candles.length - 1]?.close || 0;
+    const trend15m = detectTrend(candles, 10);
+    ctx = {
+      volumeRatio: indicators.volRatio,
+      rsi: indicators.rsi,
+      macdHist: indicators.macdHist,
+      macdRising: indicators.macdRising,
+      aboveVwap: spot > calculateVWAP(candles),
+      trend15m,
+      trend1h: trend15m, // fallback
+      atSupport: trendCtx.atSupport,
+      atResistance: trendCtx.atResistance,
+    };
+  }
+
+  const scanResult = scanAllPatterns(candles, ctx);
+  if (scanResult.allPatterns.length === 0) {
+    return [getStructureReading(candles)];
+  }
+  return scanResult.allPatterns;
+}
+
+export class CandlePatternEngine {
+  constructor(candles) {
+    this.candles = candles;
+  }
+  scan(lookback = 10) {
+    const results = [];
+    const n = this.candles.length;
+    for (let offset = 0; offset < lookback; offset++) {
+      const endIdx = n - offset;
+      if (endIdx < 5) break;
+      const slice = this.candles.slice(0, endIdx);
+      const patterns = scanCandles(slice);
+      patterns.forEach(p => {
+        results.push({
+          ...p,
+          offset
+        });
+      });
+    }
+    return results;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LAYER 2: SIGNAL CONFIRMATION ENGINE (pattern + filters)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function confirmSignal(inputs) {
+  const { pattern, rsi5m, rsi15m, macdHistogram, macdSignalCross, vwapPosition, vwapDistance, volumeRatio, nearSupport, nearResistance, trend5m, trend15m } = inputs;
+
+  let score = pattern.confidence;
+  const reasons = [pattern.description];
+  const blockers = [];
+
+  // Trend Context
+  if (pattern.type === 'BULLISH_REVERSAL') {
+    if (trend15m === 'DOWN') { 
+      score += 8; 
+      reasons.push('15m downtrend confirms reversal context'); 
+    }
+    if (trend15m === 'UP') { 
+      score -= 15; 
+      blockers.push('Already in 15m uptrend — reversal less meaningful'); 
+    }
+    if (trend5m === 'UP' && trend15m === 'UP') {
+      blockers.push('Both timeframes already bullish — CE entry may be late');
+      score -= 10;
+    }
+  }
+  if (pattern.type === 'BEARISH_REVERSAL') {
+    if (trend15m === 'UP') { 
+      score += 8; 
+      reasons.push('15m uptrend confirms reversal context'); 
+    }
+    if (trend15m === 'DOWN') { 
+      score -= 15; 
+      blockers.push('Already in 15m downtrend — reversal less reliable'); 
+    }
+  }
+
+  // Volume Confirmation
+  if (volumeRatio >= 1.5) { 
+    score += 8; 
+    reasons.push(`Vol ${volumeRatio.toFixed(1)}× average indicates institutional participation`); 
+  }
+  if (volumeRatio >= 2.0) { 
+    score += 5; 
+    reasons.push('Volume surge confirming high conviction entry'); 
+  }
+  if (volumeRatio < 0.7) { 
+    score -= 15; 
+    blockers.push(`Vol ${volumeRatio.toFixed(1)}× average — insufficient participation, avoid`); 
+  }
+
+  // RSI Filter
+  if (pattern.signal === 'CE') {
+    if (rsi15m > 70) { 
+      score -= 20; 
+      blockers.push(`RSI 15m at ${rsi15m.toFixed(0)} — overbought, buyers exhausted`); 
+    }
+    if (rsi15m < 40) { 
+      score += 8;  
+      reasons.push(`RSI 15m at ${rsi15m.toFixed(0)} — room to run, CE favorable`); 
+    }
+    if (rsi5m < 30) { 
+      score += 5;  
+      reasons.push('5m RSI oversold — bounce highly probable'); 
+    }
+  }
+  if (pattern.signal === 'PE') {
+    if (rsi15m < 30) { 
+      score -= 20; 
+      blockers.push(`RSI 15m at ${rsi15m.toFixed(0)} — oversold, sellers exhausted`); 
+    }
+    if (rsi15m > 60) { 
+      score += 8;  
+      reasons.push(`RSI 15m at ${rsi15m.toFixed(0)} — elevated, PE favorable`); 
+    }
+    if (rsi5m > 70) { 
+      score += 5;  
+      reasons.push('5m RSI overbought — price rejection likely'); 
+    }
+  }
+
+  // MACD Momentum
+  if (pattern.signal === 'CE') {
+    if (macdHistogram > 0) { 
+      score += 6; 
+      reasons.push('MACD histogram is positive — bullish momentum'); 
+    }
+    if (macdSignalCross === 'BULL') { 
+      score += 8; 
+      reasons.push('MACD bullish crossover detected'); 
+    }
+    if (macdHistogram < 0 && macdSignalCross !== 'BULL') {
+      score -= 8; 
+      blockers.push('MACD negative histogram — momentum not verified yet');
+    }
+  }
+  if (pattern.signal === 'PE') {
+    if (macdHistogram < 0) { 
+      score += 6; 
+      reasons.push('MACD histogram is negative — bearish momentum'); 
+    }
+    if (macdSignalCross === 'BEAR') { 
+      score += 8; 
+      reasons.push('MACD bearish crossover detected'); 
+    }
+  }
+
+  // VWAP Position
+  if (pattern.signal === 'CE') {
+    if (vwapPosition === 'ABOVE') { 
+      score += 6; 
+      reasons.push('Price above VWAP — bulls hold intraday control'); 
+    }
+    if (vwapPosition === 'BELOW') { 
+      score -= 8; 
+      blockers.push('Price below VWAP — CE trades go against intraday session bias'); 
+    }
+    if (vwapPosition === 'AT' && nearSupport) { 
+      score += 10; 
+      reasons.push('VWAP and support level confluence — optimal buy zone'); 
+    }
+  }
+  if (pattern.signal === 'PE') {
+    if (vwapPosition === 'BELOW') { 
+      score += 6; 
+      reasons.push('Price below VWAP — bears hold intraday control'); 
+    }
+    if (vwapPosition === 'ABOVE') { 
+      score -= 8; 
+      blockers.push('Price above VWAP — PE trades go against intraday session bias'); 
+    }
+  }
+
+  // Support / Resistance
+  if (pattern.signal === 'CE' && nearSupport) { 
+    score += 8; 
+    reasons.push('Bullish pattern at support zone — asymmetric risk-to-reward'); 
+  }
+  if (pattern.signal === 'PE' && nearResistance) { 
+    score += 8; 
+    reasons.push('Bearish pattern at resistance zone — asymmetric risk-to-reward'); 
+  }
+  if (pattern.signal === 'CE' && nearResistance) { 
+    score -= 5; 
+    blockers.push('Bullish entry near major resistance — upside target space tight'); 
+  }
+  if (pattern.signal === 'PE' && nearSupport) { 
+    score -= 5; 
+    blockers.push('Bearish entry near major support — downside target space tight'); 
+  }
+
+  const finalScore = Math.min(Math.max(score, 0), 100);
+  const confirmed = finalScore >= 65 && blockers.length < 2;
+
+  return {
+    confirmed,
+    finalSignal: !confirmed ? 'AVOID' : pattern.signal,
+    confidence: finalScore,
+    reasons,
+    blockers
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LAYER 3: STRIKE SELECTION ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function selectStrike(inputs) {
+  const { signal, spotPrice, iv, dte, targetMove, riskCapital, lotSize } = inputs;
+  
+  // Strike interval selection
+  const strikeInterval = spotPrice > 40000 ? 100 : spotPrice > 20000 ? 50 : 50; 
+  
+  // Strike offset based on IV environment
+  let strikeOffset = 0;
+  if (iv > 0.18) {
+    strikeOffset = 2; // OTM strike selection for elevated IV to preserve premium
+  } else if (iv > 0.14) {
+    strikeOffset = 1; // 1 strike OTM for normal IV
+  } else {
+    strikeOffset = 0; // ATM strike for low IV
+  }
+
+  const rawStrike = signal === 'CE'
+    ? Math.ceil(spotPrice / strikeInterval) * strikeInterval + (strikeOffset * strikeInterval)
+    : Math.floor(spotPrice / strikeInterval) * strikeInterval - (strikeOffset * strikeInterval);
+
+  // Black-Scholes premium proxy calculation
+  const moneyness = Math.abs(rawStrike - spotPrice) / spotPrice;
+  const timeDte = dte <= 0 ? 0.5 : dte;
+  const timeValue = spotPrice * iv * Math.sqrt(timeDte / 252);
+  const intrinsic = Math.max(0, signal === 'CE' 
+    ? spotPrice - rawStrike 
+    : rawStrike - spotPrice);
+  const estimatedPremium = intrinsic + timeValue * Math.exp(-moneyness * 3.0);
+
+  // Stop Loss (40% SL) & Targets (T1 = 60% gain, T2 = 120% gain)
+  const entryPremium = Math.round(estimatedPremium);
+  const stopLossPremium = Math.round(estimatedPremium * 0.60); // 40% loss
+  const target1Premium = Math.round(estimatedPremium * 1.60);  // 60% gain
+  const target2Premium = Math.round(estimatedPremium * 2.20);  // 120% gain
+
+  // Position sizing math
+  const riskPerShare = entryPremium - stopLossPremium;
+  const lotRiskVal = riskPerShare * lotSize;
+  const computedLots = Math.floor(riskCapital / lotRiskVal);
+  const recommendedLots = Math.max(1, Math.min(computedLots, 5));
+  const maxRiskRs = recommendedLots * lotRiskVal;
+  const rrRatio = ((target1Premium - entryPremium) / riskPerShare).toFixed(1);
+
+  // IV Warnings
+  let ivWarning = null;
+  if (iv > 0.20) {
+    ivWarning = `IV at ${(iv * 100).toFixed(0)}% — elevated, buying option premiums holds high decay risk`;
+  } else if (iv < 0.12) {
+    ivWarning = `IV at ${(iv * 100).toFixed(0)}% — low, option buying is highly favorable`;
+  }
+
+  // Calculate exact expiry date in DD-MMM-YYYY format
+  const getExpiryDateStr = (days) => {
+    const istDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const expDate = new Date(istDate.getTime() + days * 24 * 60 * 60 * 1000);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const day = String(expDate.getDate()).padStart(2, '0');
+    const month = months[expDate.getMonth()];
+    const year = expDate.getFullYear();
+    return `${day}-${month}-${year}`;
+  };
+
+  return {
+    strike: rawStrike,
+    expiry: getExpiryDateStr(dte),
+    entryPremiumLow: Math.round(entryPremium * 0.95),
+    entryPremiumHigh: Math.round(entryPremium * 1.05),
+    stopLossPremium,
+    target1Premium,
+    target2Premium,
+    recommendedLots,
+    maxRiskRs,
+    rrRatio,
+    ivWarning,
+    strikeRationale: `Delta ≈ ${(0.45 - strikeOffset * 0.08).toFixed(2)}, ${strikeOffset === 0 ? 'ATM' : strikeOffset + ' strike OTM'} selected for ${(iv * 100).toFixed(0)}% IV environment`
+  };
+}

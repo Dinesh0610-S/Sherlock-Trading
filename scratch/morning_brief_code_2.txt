@@ -1,0 +1,154 @@
+i" in data:
+        return {
+            "fii_net": float(data["fii"].get("net", 0)),
+            "dii_net": float(data["dii"].get("net", 0)),
+            "date":    data.get("date", ""),
+        }
+    return {"fii_net": 0, "dii_net": 0, "date": ""}
+
+
+def fetch_news() -> List[Dict]:
+    """
+    Fetch live Indian financial news from Google News RSS (no API key needed).
+    Falls back to an empty list if unavailable.
+    """
+    feeds = [
+        "https://news.google.com/rss/search?q=India+stock+market+Nifty+NSE&hl=en-IN&gl=IN&ceid=IN:en",
+        "https://news.google.com/rss/search?q=FII+DII+Nifty+market+outlook&hl=en-IN&gl=IN&ceid=IN:en",
+        "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms",
+    ]
+
+    articles: List[Dict] = []
+    seen_titles = set()
+
+    for feed_url in feeds:
+        if len(articles) >= 6:
+            break
+        try:
+            resp = requests.get(feed_url, timeout=5, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; SherlockBot/1.0)"
+            })
+            if resp.status_code != 200:
+                continue
+            root = ET.fromstring(resp.content)
+            items = root.findall(".//item")
+            for item in items[:4]:
+                title = (item.findtext("title") or "").strip()
+                if not title or title in seen_titles:
+                    continue
+                seen_titles.add(title)
+                pub_date = item.findtext("pubDate") or ""
+                # Simple sentiment classification
+                title_lower = title.lower()
+                bullish_kws = ["surge", "rise", "gain", "rally", "jump", "bull", "record", "high", "positive", "inflow", "buy", "boost", "growth"]
+                bearish_kws = ["fall", "drop", "decline", "sell", "crash", "weak", "outflow", "loss", "cut", "rate hike", "inflation", "bear", "down"]
+                bullish_score = sum(1 for kw in bullish_kws if kw in title_lower)
+                bearish_score = sum(1 for kw in bearish_kws if kw in title_lower)
+                if bullish_score > bearish_score:
+                    sentiment = "BULLISH"
+                elif bearish_score > bullish_score:
+                    sentiment = "BEARISH"
+                else:
+                    sentiment = "NEUTRAL"
+                articles.append({
+                    "title":     title,
+                    "source":    "Google News",
+                    "sentiment": sentiment,
+                    "impact":    "",
+                    "category":  "Market",
+                    "pub_date":  pub_date,
+                })
+                if len(articles) >= 6:
+                    break
+        except Exception as e:
+            logger.debug(f"News RSS fetch failed ({feed_url}): {e}")
+
+    return articles if articles else _FALLBACK_NEWS
+
+
+# ─────────────────────────────────────────────
+#  RULE-BASED MORNING BRIEF GENERATOR
+# ─────────────────────────────────────────────
+
+def _sentiment(pct: float) -> str:
+    if pct > 0.5:  return "BULLISH"
+    if pct < -0.5: return "BEARISH"
+    return "NEUTRAL"
+
+
+def generate_rule_based_brief(market_data: Dict, news: List[Dict]) -> Dict:
+    """High-quality deterministic morning brief as Sherlock Holmes."""
+    now = datetime.now()
+
+    global_data  = market_data.get("global", _FALLBACK_GLOBAL)
+    commodities  = market_data.get("commodities", _FALLBACK_COMMODITIES)
+    india        = market_data.get("india", _FALLBACK_NSE)
+    fii_dii      = india.get("fii_dii", {"fii_net": 0, "dii_net": 0})
+
+    dow    = global_data.get("dow",    {})
+    sp500  = global_data.get("sp500",  {})
+    nasdaq = global_data.get("nasdaq", {})
+    crude  = commodities.get("crude",  {})
+    gold   = commodities.get("gold",   {})
+
+    dow_pct    = dow.get("change_pct", 0.0)
+    sp_pct     = sp500.get("change_pct", 0.0)
+    nas_pct    = nasdaq.get("change_pct", 0.0)
+    fii_net    = fii_dii.get("fii_net", 0.0)
+    dii_net    = fii_dii.get("dii_net", 0.0)
+    nifty_prev = india.get("nifty_current", 0) or india.get("nifty_prev_close", 0)
+    sgx_nifty  = india.get("sgx_nifty", nifty_prev)
+    sgx_gap    = round(sgx_nifty - nifty_prev) if nifty_prev > 0 else 0
+
+    # Count bullish/bearish signals
+    bullish_signals = 0
+    bearish_signals = 0
+    if dow_pct > 0.3:    bullish_signals += 1
+    elif dow_pct < -0.3: bearish_signals += 1
+    if nas_pct > 0.3:    bullish_signals += 1
+    elif nas_pct < -0.3: bearish_signals += 1
+    if fii_net > 500:    bullish_signals += 1
+    elif fii_net < -500: bearish_signals += 1
+    if dii_net > 0:      bullish_signals += 1
+    else:                bearish_signals += 1
+    crude_pct = crude.get("change_pct", 0.0)
+    if crude_pct < -1:   bullish_signals += 1   # lower crude = good for India
+    elif crude_pct > 2:  bearish_signals += 1
+
+    # Decide status and conviction
+    if bullish_signals >= 4:
+        market_status = "OPEN LONG"
+        conviction = "HIGH" if bullish_signals >= 5 else "MEDIUM"
+        global_bias = "BULLISH"
+    elif bearish_signals >= 4:
+        market_status = "OPEN SHORT"
+        conviction = "HIGH" if bearish_signals >= 5 else "MEDIUM"
+        global_bias = "BEARISH"
+    elif bullish_signals > bearish_signals:
+        market_status = "OPEN LONG"
+        conviction = "MEDIUM"
+        global_bias = "BULLISH"
+    elif bearish_signals > bullish_signals:
+        market_status = "OPEN SHORT"
+        conviction = "MEDIUM"
+        global_bias = "BEARISH"
+    else:
+        market_status = "STAY SIDELINED"
+        conviction = "LOW"
+        global_bias = "NEUTRAL"
+
+    # Open direction
+    if sgx_gap > 30:
+        direction = "GAP UP"
+    elif sgx_gap < -30:
+        direction = "GAP DOWN"
+    else:
+        direction = "FLAT OPEN"
+
+    # Support/Resistance
+    support    = round(nifty_prev - 100 - (abs(sgx_gap) * 0.5)) if nifty_prev > 0 else 0
+    resistance = round(nifty_prev + 100 + (abs(sgx_gap) * 0.5)) if nifty_prev > 0 else 0
+
+    # Probability
+    if conviction == "HIGH":    prob = "80% +"
+    elif conviction ==

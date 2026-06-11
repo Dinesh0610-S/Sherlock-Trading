@@ -1,0 +1,141 @@
+960:   if (fiiNet > 0 && diiNet > 0) return {
+961:     type: 'BULLISH', label: '🟢 BULLISH ALIGNMENT',
+962:     desc: 'Both FII and DII are buying strongly. Strongest possible bullish signal.'
+963:   };
+964:   if (fiiNet < 0 && diiNet < 0) return {
+965:     type: 'BEARISH', label: '🔴 BEARISH ALIGNMENT',
+966:     desc: 'Both FII and DII are selling. High conviction bearish signal. Avoid longs.'
+967:   };
+968:   if (fiiNet < 0 && diiNet > 0) return {
+969:     type: 'MIXED_DII', label: '🟡 MIXED (DII Buying, FII Selling)',
+970:     desc: 'DII is buying while FII is selling. Domestic support absorbing foreign distribution.'
+971:   };
+972:   return {
+973:     type: 'MIXED_FII', label: '🟡 MIXED (FII Buying, DII Selling)',
+974:     desc: 'FII is buying while DII is selling. Foreign inflow despite domestic caution.'
+975:   };
+976: }
+977: 
+978: // Today's FII/DII — smart cache keyed to YYYYMMDD so stale day's cache never bleeds into next day
+979: app.get('/api/fiidii/today', async (req, res) => {
+980:   const now = new Date();
+981:   const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+982:   const h = ist.getHours(), m = ist.getMinutes(), d = ist.getDay();
+983:   const isWeekday    = d >= 1 && d <= 5;
+984:   const isMarketHrs  = (h > 9 || (h === 9 && m >= 15)) && (h < 15 || (h === 15 && m <= 30));
+985:   const marketOpen   = isWeekday && isMarketHrs;
+986:   const todayKey     = `fiidiiToday_${ist.toISOString().slice(0, 10)}`; // e.g. fiidiiToday_2026-05-29
+987:   const ttl          = marketOpen ? 60_000 : 600_000;
+988: 
+989:   // Only serve cache if same market day
+990:   const cachedEntry = cache[todayKey];
+991:   if (cachedEntry && (Date.now() - cachedEntry.ts) < ttl) {
+992:     // Update last_updated clock field before returning cached response
+993:     const freshClock = ist.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
+994:     return res.json({ ...cachedEntry.data, last_updated: freshClock, market_open: marketOpen });
+995:   }
+996: 
+997:   const todayIST = ist.toLocaleDateString('en-IN', {
+998:     day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata'
+999:   }).toUpperCase().replace(/ /g, '-'); // → "29-MAY-2026"
+1000: 
+1001:   try {
+1002:     const raw = await nseGet('/api/fiidiiTradeReact');
+1003:     const fiiRow = raw.find(r => r.category && (r.category.includes('FII') || r.category.includes('FPI')));
+1004:     const diiRow = raw.find(r => r.category === 'DII');
+1005: 
+1006:     if (!fiiRow || !diiRow) throw new Error('FII/DII rows not found in NSE response');
+1007: 
+1008:     const clean = (val) => parseFloat(String(val || '0').replace(/,/g, '')) || 0;
+1009: 
+1010:     const fiiBuy  = clean(fiiRow.buyValue);
+1011:     const fiiSell = clean(fiiRow.sellValue);
+1012:     const fiiNet  = clean(fiiRow.netValue);
+1013:     const diiBuy  = clean(diiRow.buyValue);
+1014:     const diiSell = clean(diiRow.sellValue);
+1015:     const diiNet  = clean(diiRow.netValue);
+1016:     const combNet = fiiNet + diiNet;
+1017: 
+1018:     // Check if NSE's own date matches today's IST date
+1019:     const nseRawDate = fiiRow.date || fiiRow.tradedDate || '';
+1020:     const todayDay = ist.getDate().toString();
+1021:     const isToday = nseRawDate.includes(todayDay);
+1022: 
+1023:     const lastUpdated = ist.toLocaleTimeString('en-IN', {
+1024:       hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
+1025:     });
+1026: 
+1027:     const result = {
+1028:       date:         todayIST,
+1029:       nse_raw_date: nseRawDate,
+1030:       is_today:     isToday,
+1031:       market_open:  marketOpen,
+1032:       fii: {
+1033:         buy:              fiiBuy,
+1034:         sell:             fiiSell,
+1035:         net:              fiiNet,
+1036:         buy_formatted:    formatCr(fiiBuy),
+1037:         sell_formatted:   formatCr(fiiSell),
+1038:         net_formatted:    formatCr(fiiNet),
+1039:         interpretation:   fiiInterpretation('FII', fiiBuy, fiiSell, fiiNet),
+1040:       },
+1041:       dii: {
+1042:         buy:              diiBuy,
+1043:         sell:             diiSell,
+1044:         net:              diiNet,
+1045:         buy_formatted:    formatCr(diiBuy),
+1046:         sell_formatted:   formatCr(diiSell),
+1047:         net_formatted:    formatCr(diiNet),
+1048:         interpretation:   fiiInterpretation('DII', diiBuy, diiSell, diiNet),
+1049:       },
+1050:       combined_net:           combNet,
+1051:       combined_net_formatted: formatCr(combNet),
+1052:       alignment:              fiiAlignment(fiiNet, diiNet),
+1053:       last_updated:           lastUpdated,
+1054:       source:                 'NSE_LIVE',
+1055:     };
+1056: 
+1057:     cache[todayKey] = { data: result, ts: Date.now() };
+1058:     res.json(result);
+1059:   } catch (err) {
+1060:     console.error(`[/api/fiidii/today] Error: ${err.message}`);
+1061:     res.status(503).json({
+1062:       error:        'NSE_UNAVAILABLE',
+1063:       message:      'FII/DII data temporarily unavailable. NSE session may have expired.',
+1064:       date:         todayIST,
+1065:       market_open:  marketOpen,
+1066:       last_attempt: ist.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }),
+1067:       source:       'ERROR',
+1068:     });
+1069:   }
+1070: });
+1071: 
+1072: // 30-day historical
+1073: app.get('/api/fiidii/history', async (req, res) => {
+1074:   const cached = getCached('fiidiiHistory');
+1075:   if (cached) return res.json(cached);
+1076: 
+1077:   try {
+1078:     const raw = await nseGet('/api/historical/fiiDii');
+1079:     const historyArray = Array.isArray(raw) ? raw : (raw?.data || []);
+1080:     setCached('fiidiiHistory', historyArray);
+1081:     res.json(historyArray);
+1082:   } catch (err) {
+1083:     console.error(`[/api/fiidii/history] Error: ${err.message}`);
+1084:     res.status(503).json({ error: 'NSE_UNAVAILABLE', message: err.message });
+1085:   }
+1086: });
+1087: 
+1088: // ── Pre-Market Intelligence Engine ──────────────────────────────────────────
+1089: 
+1090: /**
+1091:  * Fetch market news from free RSS feeds (MoneyControl + ET Markets).
+1092:  * Returns structured {headlines, overall_sentiment, key_risk, key_opportunity}
+1093:  */
+1094: async function fetchMarketNews() {
+1095:   const feeds = [
+1096:     'https://www.moneycontrol.com/rss/latestnews.xml',
+1097:     'https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms',
+1098:   ];
+1099: 
+1100:   const headlines = [];

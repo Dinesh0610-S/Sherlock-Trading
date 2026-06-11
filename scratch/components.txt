@@ -1,0 +1,13 @@
+Listing all function, class, and component declarations:
+Line 45: const formatFII = (net) => {
+Line 56: const ConfidenceRing = ({ score, label, recommendation }) => {
+Line 108: const OptionCard = ({ card, type }) => (
+Line 184: const ScoreBreakdown = ({ factors, confidence }) => (
+Line 262: function PreMarketIntel() {
+Line 937: const formatPrice = (value, prefix = '₹') => {
+Line 949: const formatNumber = (value, decimals = 2) => {
+Line 955: const formatPct = (value) => {
+Line 961: const checkIsPostMarket = (timestampStr) => {
+Line 998: const DataStatusBanner = ({ status, errors, dataSource, lastUpdated, onRetry }) => {
+Line 1158: const detectDirection = (data) => {
+Line 1173: const SherlockVerdictPage = () => {

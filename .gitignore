@@ -29,4 +29,7 @@ __pycache__
 *.pyc
 .gemini
 .vite/
+.env
+.env.*
+
 

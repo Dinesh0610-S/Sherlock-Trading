@@ -33,7 +33,28 @@ import { scanNiftyPatterns, buildTrendContext } from './src/utils/patternEngine.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Load .env file manually if it exists to support environment variables without extra dependency
+try {
+  const envPath = path.join(__dirname, '.env');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    envContent.split(/\r?\n/).forEach(line => {
+      const parts = line.split('=');
+      if (parts.length >= 2) {
+        const key = parts[0].trim();
+        const value = parts.slice(1).join('=').trim().replace(/^["']|["']$/g, '');
+        if (key && !key.startsWith('#')) {
+          process.env[key] = value;
+        }
+      }
+    });
+  }
+} catch (e) {
+  console.warn('Failed to load .env file manually:', e.message);
+}
+
 let nseClient = null;
+
 let bseClient = null;
 try {
   nseClient = new NSE('./downloads');
@@ -1093,7 +1114,7 @@ app.post('/api/chat', async (req, res) => {
     };
   });
 
-  const apiKey = "AQ.Ab8RN6J-vrknMa1UTNEXDQLNiQYAukB7a7mGsZqN9quLIJq9mQ";
+  const apiKey = process.env.GEMINI_API_KEY || "";
   const attempts = [
     { model: 'gemini-3.5-flash', useSearch: false },
     { model: 'gemini-2.5-flash', useSearch: false },
@@ -5228,6 +5249,8 @@ app.post('/api/premarket/options-entry', async (req, res) => {
     const vwapPosition = vwapPos === 'above' ? 'above'
                        : vwapPos === 'below' ? 'below'
                        : 'near';
+    const vwap_val     = latestIndicators.vwap ?? null;
+
 
     // Real Asia breadth count (Layer 7 global — now from real market data)
     const realAsiaCount = morning.asiaPositiveCount ??
@@ -5854,7 +5877,7 @@ MTF aligned: ${mtf?.aligned ?? 'N/A'}
 Give verdict with exact entry, SL, targets in ₹.
 Use the response format from your training.`;
 
-  const apiKey = "AQ.Ab8RN6J-vrknMa1UTNEXDQLNiQYAukB7a7mGsZqN9quLIJq9mQ";
+  const apiKey = process.env.GEMINI_API_KEY || "";
   const attempts = [
     { model: "gemini-3.5-flash" },
     { model: "gemini-2.5-flash" }

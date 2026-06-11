@@ -989,12 +989,13 @@ export default function MorningBrief() {
           {/* Sub-tabs Navigation Bar */}
           <div style={{
             display: 'flex',
+            justifyContent: 'flex-end', // Align tabs to the right
             flexWrap: 'wrap',
             gap: '6px',
-            padding: '5px',
+            padding: '4px',
             background: 'rgba(10,12,20,0.85)',
             border: '1px solid rgba(255,255,255,0.07)',
-            borderRadius: '10px',
+            borderRadius: '8px',
             marginBottom: '24px',
             boxSizing: 'border-box'
           }}>
@@ -1008,8 +1009,8 @@ export default function MorningBrief() {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: '8px 20px',
-                    borderRadius: '6px',
+                    padding: '6px 12px', // btn-sm padding
+                    borderRadius: '4px', // btn-sm border-radius
                     border: isActive
                       ? '1px solid #c9a84c'
                       : '1px solid rgba(201, 168, 76, 0.25)',
@@ -1017,7 +1018,7 @@ export default function MorningBrief() {
                       ? '#c9a84c'
                       : 'rgba(201, 168, 76, 0.03)',
                     color: isActive ? '#0a0c14' : '#c9a84c',
-                    fontSize: '12px',
+                    fontSize: '10px', // btn-sm font-size
                     fontFamily: "'Cinzel', 'Georgia', serif",
                     fontWeight: isActive ? '700' : '600',
                     letterSpacing: '1px',

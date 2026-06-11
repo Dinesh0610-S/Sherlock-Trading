@@ -28,3 +28,5 @@ dist-ssr
 __pycache__
 *.pyc
 .gemini
+.vite/
+

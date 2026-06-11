@@ -1005,38 +1005,45 @@ export default function MorningBrief() {
                   key={tab.id}
                   onClick={() => setBriefSubTab(tab.id)}
                   style={{
-                    flex: 1,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '7px',
-                    padding: '9px 14px',
-                    borderRadius: '7px',
+                    padding: '8px 20px',
+                    borderRadius: '6px',
                     border: isActive
-                      ? '1px solid rgba(201,168,76,0.55)'
-                      : '1px solid transparent',
+                      ? '1px solid #c9a84c'
+                      : '1px solid rgba(201, 168, 76, 0.25)',
                     background: isActive
-                      ? 'linear-gradient(135deg, #b8942a 0%, #d4aa3a 40%, #c9a84c 70%, #a07828 100%)'
-                      : 'rgba(255,255,255,0.03)',
-                    color: isActive ? '#0a0c14' : '#6b7280',
-                    fontSize: '11px',
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontWeight: isActive ? '800' : '600',
-                    letterSpacing: '0.6px',
+                      ? '#c9a84c'
+                      : 'rgba(201, 168, 76, 0.03)',
+                    color: isActive ? '#0a0c14' : '#c9a84c',
+                    fontSize: '12px',
+                    fontFamily: "'Cinzel', 'Georgia', serif",
+                    fontWeight: isActive ? '700' : '600',
+                    letterSpacing: '1px',
                     textTransform: 'uppercase',
                     cursor: 'pointer',
                     transition: 'all 0.18s ease',
-                    boxShadow: isActive
-                      ? '0 2px 12px rgba(201,168,76,0.35), inset 0 1px 0 rgba(255,255,255,0.18)'
-                      : 'none',
                     whiteSpace: 'nowrap',
                   }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.background = 'rgba(201, 168, 76, 0.1)';
+                      e.currentTarget.style.borderColor = 'rgba(201, 168, 76, 0.45)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.background = 'rgba(201, 168, 76, 0.03)';
+                      e.currentTarget.style.borderColor = 'rgba(201, 168, 76, 0.25)';
+                    }
+                  }}
                 >
-                  <span style={{ fontSize: '14px', lineHeight: 1 }}>{tab.icon}</span>
                   <span>{tab.label}</span>
                 </button>
               );
             })}
+
           </div>
 
           {(briefSubTab === 'global' || briefSubTab === 'india') && (() => {

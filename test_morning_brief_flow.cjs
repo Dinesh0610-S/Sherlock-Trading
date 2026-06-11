@@ -37,7 +37,7 @@ const path = require('path');
 
     // ── Verify Global Oversight sub-tab is visible and has real data ──
     console.log('Verifying Global Oversight sub-tab data...');
-    const globalSubTabBtn = page.locator('button:has-text("Global oversight")');
+    const globalSubTabBtn = page.locator('button:has-text("Global Overnight")');
     await globalSubTabBtn.click();
     await page.waitForTimeout(500);
 
@@ -53,7 +53,7 @@ const path = require('path');
 
     // ── Switch to India Ready sub-tab ──
     console.log('Switching to India Ready sub-tab...');
-    const indiaSubTabBtn = page.locator('button:has-text("India ready")');
+    const indiaSubTabBtn = page.locator('button:has-text("India Ready")');
     await indiaSubTabBtn.click();
     await page.waitForTimeout(500);
 

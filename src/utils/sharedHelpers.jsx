@@ -489,15 +489,16 @@ export async function buildStrategyTimeline(
       strike = '—';
     }
 
-    // ── Conflict Resolution Rule (FIX 3.1) ──────────────────────────────────
-    // The original code initialised isConflict = false and NEVER set it true,
-    // making the guard dead code. We now check: if the live regime engine
-    // (activeBias from usePMIStream) contradicts the 15m candle trend
-    // direction, downgrade to AVOID to protect capital.
-    // Only apply after the opening range (idx > 1) — before that the 15m
-    // trend is still forming and a mismatch is expected noise.
+    // ── Conflict Resolution Rule (FIX 3.1 Rev2) ─────────────────────────────
+    // Only downgrade to AVOID on the CURRENT live window when the PMI stream
+    // regime (activeBias) directly contradicts the 15m candle trend.
+    // • Past windows: keep their recorded recommendation (already played out).
+    // • Future windows: show forward projection based on trend only.
+    // • Current window only: hard AVOID to protect live capital.
+    // Opening range (idx <= 1) is always exempt — 15m trend is still forming.
     let isConflict = false;
     if (
+      isCurrent &&           // ← only the live active window
       !isOpeningRange &&
       activeBias && activeBias !== 'NEUTRAL' &&
       recommendation !== 'AVOID'

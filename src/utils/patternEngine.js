@@ -212,13 +212,13 @@ export function calculateRealTrend(rawCandles) {
   let label;
   let signal;
 
-  // FIX 3.2: SIDEWAYS band widened to cover -2 … +1 (was only exactly 0).
-  // A single bearish candle no longer immediately commits to DOWNTREND.
-  // UP requires score >= 2; DOWN requires score <= -3 for conviction.
+  // SIDEWAYS band: score must be exactly -1, 0, or +1 to stay neutral.
+  // Score >= 2 → UP/CE; score <= -2 → DOWN/PE. A single net bearish session
+  // (score -2) will now correctly fire a PE signal instead of AVOID.
   if      (score >= 6)  { direction = 'UP';       label = 'STRONG UPTREND';   signal = 'CE';   }
   else if (score >= 3)  { direction = 'UP';       label = 'UPTREND';          signal = 'CE';   }
   else if (score >= 2)  { direction = 'UP';       label = 'SLIGHT UPTREND';   signal = 'CE';   }
-  else if (score >= -2) { direction = 'SIDEWAYS'; label = 'SIDEWAYS';         signal = 'WATCH';}
+  else if (score >= -1) { direction = 'SIDEWAYS'; label = 'SIDEWAYS';         signal = 'WATCH';}
   else if (score >= -5) { direction = 'DOWN';     label = 'DOWNTREND';        signal = 'PE';   }
   else if (score >= -6) { direction = 'DOWN';     label = 'STRONG DOWNTREND'; signal = 'PE';   }
   else                  { direction = 'DOWN';     label = 'STRONG DOWNTREND'; signal = 'PE';   }

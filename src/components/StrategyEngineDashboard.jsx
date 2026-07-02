@@ -143,7 +143,7 @@ export default function StrategyEngineDashboard({
     if (spotPrice > 1000) {
       rebuildTimeline();
     }
-  }, [spotPrice, candles5m, candles15m, preMarketMetrics, news]);
+  }, [spotPrice, candles5m, candles15m, preMarketMetrics, news, activeBias]);
 
   // Sync history and activeBias to persisted slotsState
   useEffect(() => {

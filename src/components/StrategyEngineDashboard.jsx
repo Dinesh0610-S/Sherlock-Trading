@@ -14,7 +14,8 @@ export default function StrategyEngineDashboard({
   mini = false,
   activeBias = null,
   regimeWindow = null,
-  regimeOverride = false
+  regimeOverride = false,
+  intradayShift = null,  // { active: bool, reason: string, triggeredAt: string }
 }) {
   const [activeWindowIdx, setActiveWindowIdx] = useState(0);
   const [news, setNews] = useState(null);
@@ -26,11 +27,16 @@ export default function StrategyEngineDashboard({
   const [history, setHistory] = useState([]);
   const [selectedHistIdx, setSelectedHistIdx] = useState(null);
   const [tradeModal, setTradeModal] = useState(null); // { strategy, lotSize }
+  const [isHolidayOrWeekend, setIsHolidayOrWeekend] = useState(false);
   
   const [persistedTimeline, setPersistedTimeline] = usePersistedState('timelineSlots', { date: '', slots: [] });
   const slotsState = persistedTimeline.slots || [];
   
   const alertedCandlesRef = useRef(new Set());
+  // FIX 1.3: aliveRef prevents setState calls after the component unmounts
+  // (can happen when the user rapidly switches sub-tabs during async fetch).
+  const aliveRef = useRef(true);
+  useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false; }; }, []);
 
   const [candles5m, setCandles5m] = useState([]);
   const [candles15m, setCandles15m] = useState([]);
@@ -43,17 +49,28 @@ export default function StrategyEngineDashboard({
     optionData: null
   });
 
-  const fetchTimelineData = async () => {
+  // FIX 1.2: Wrap fetchTimelineData in useCallback with [] deps so the
+  // setInterval below captures a stable function reference rather than a
+  // stale closure that is silently recreated on every render pass.
+  const fetchTimelineData = useCallback(async () => {
     try {
+      const resStatus = await fetch('/api/nse/market-status');
+      const dStatus = resStatus.ok ? await resStatus.json() : {};
+      console.log('[StrategyDashboard] Market Status:', dStatus);
+      const isClosedHoliday = dStatus.status === 'CLOSED' && 
+        (dStatus.reason?.includes('Weekend') || dStatus.reason?.includes('Holiday'));
+      console.log('[StrategyDashboard] isClosedHoliday:', isClosedHoliday);
+      if (aliveRef.current) setIsHolidayOrWeekend(isClosedHoliday);
+
       const res5m = await fetch('/api/candles?symbol=NIFTY&interval=5m');
       const d5m = res5m.ok ? await res5m.json() : {};
       const c5m = d5m.candles || [];
-      setCandles5m(c5m);
+      if (aliveRef.current) setCandles5m(c5m);
 
       const res15m = await fetch('/api/candles?symbol=NIFTY&interval=15m');
       const d15m = res15m.ok ? await res15m.json() : {};
       const c15m = d15m.candles || [];
-      setCandles15m(c15m);
+      if (aliveRef.current) setCandles15m(c15m);
 
       const resVix = await fetch('/api/nse/india-vix');
       const dVix = resVix.ok ? await resVix.json() : {};
@@ -75,24 +92,26 @@ export default function StrategyEngineDashboard({
       const dCues = resCues.ok ? await resCues.json() : {};
       const usChange = dCues.nasdaq?.changePct || dCues.dow?.changePct || 0;
 
-      setPreMarketMetrics({
-        giftNiftyPremium: giftPremium,
-        usFuturesChange: usChange,
-        indiaVix: vixVal,
-        pcr: pcrVal,
-        fiiNetCrore: fiiVal,
-        optionData: dOpt
-      });
+      if (aliveRef.current) {
+        setPreMarketMetrics({
+          giftNiftyPremium: giftPremium,
+          usFuturesChange: usChange,
+          indiaVix: vixVal,
+          pcr: pcrVal,
+          fiiNetCrore: fiiVal,
+          optionData: dOpt
+        });
+      }
     } catch (err) {
       console.warn("Failed to fetch timeline data:", err);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchTimelineData();
     const interval = setInterval(fetchTimelineData, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchTimelineData]);
 
   useEffect(() => {
     const rebuildTimeline = async () => {
@@ -106,7 +125,8 @@ export default function StrategyEngineDashboard({
         candles15m,
         preMarketMetrics.optionData,
         spotPrice,
-        news?.score || 0
+        news?.score || 0,
+        activeBias
       );
       setHistory(built);
 
@@ -139,7 +159,7 @@ export default function StrategyEngineDashboard({
       const prevMap = new Map(prevSlots.map(s => [s.slot, s]));
 
       const nextSlots = history.map(w => {
-        const slotName = w.time;
+        const slotName = w.slot || w.time;
         const prevSlot = prevMap.get(slotName);
 
         let status = 'FUTURE';
@@ -147,24 +167,34 @@ export default function StrategyEngineDashboard({
         else if (w.isCurrent) status = 'ACTIVE';
 
         const isLocked = status === 'COMPLETED' || status === 'FUTURE';
-        const defaultType = w.recommendation; // e.g. 'CE', 'PE', 'AVOID'
+        const defaultType = w.recommendation;
 
         let currentType = defaultType;
 
+        // FIX 6.1: Record a lockedAt timestamp the moment a slot transitions
+        // from ACTIVE → COMPLETED. This fingerprints exactly when the signal
+        // was live, preventing retroactive re-labelling in the persisted store.
+        let lockedAt = prevSlot?.lockedAt ?? null;
+
         if (status === 'COMPLETED') {
-          // Locked past slot: retain its saved currentType if it was already completed
           if (prevSlot && prevSlot.status === 'COMPLETED') {
+            // Already locked — preserve the saved currentType and lockedAt
             currentType = prevSlot.currentType;
           } else {
-            // Transitioning to completed: lock in whatever currentType it had while active, or defaultType
+            // Transitioning to COMPLETED: lock in whatever currentType it had
+            // while active (or defaultType if it was never active)
             currentType = prevSlot ? prevSlot.currentType : defaultType;
+            // Record the lock timestamp only on the first transition
+            if (!lockedAt) lockedAt = Date.now();
           }
         } else if (status === 'ACTIVE') {
           // Active slot always reflects the live candle trend (defaultType)
           currentType = defaultType;
+          lockedAt    = null; // clear any stale lockedAt from a previous run
         } else {
           // FUTURE
           currentType = defaultType;
+          lockedAt    = null;
         }
 
         return {
@@ -172,7 +202,9 @@ export default function StrategyEngineDashboard({
           defaultType,
           currentType,
           isLocked,
-          status
+          status,
+          lockedAt,             // FIX 6.1: immutable lock timestamp
+          computedAt: w.computedAt ?? null, // FIX 6.1: propagate from window obj
         };
       });
 
@@ -187,11 +219,19 @@ export default function StrategyEngineDashboard({
       const res = await fetch('/api/premarket/news-sentiment');
       if (res.ok) {
         const data = await res.json();
-        setNews(data);
-        setNewsCountdown(900);
+        if (aliveRef.current) setNews(data);
+        // FIX 1.4: Reset the countdown AFTER a successful fetch
+        if (aliveRef.current) setNewsCountdown(900);
+      } else {
+        // FIX 1.4: Also reset on HTTP-error responses so the countdown
+        // doesn't silently misrepresent a stale last-known refresh time.
+        if (aliveRef.current) setNewsCountdown(900);
       }
     } catch (err) {
       console.warn("Failed to fetch news sentiment:", err);
+      // FIX 1.4: Reset countdown even on network failure so the UI does
+      // not show a countdown ticking down to stale data that never refreshed.
+      if (aliveRef.current) setNewsCountdown(900);
     }
   }, []);
 
@@ -209,7 +249,9 @@ export default function StrategyEngineDashboard({
     return () => clearInterval(timer);
   }, []);
 
-  // Poll Nifty candles for pattern detection
+  // FIX 1.3: Pattern candle poll now guards all setState calls with aliveRef
+  // so they are never dispatched after the component unmounts (which happens
+  // when the user rapidly switches between sub-tabs).
   useEffect(() => {
     const pollCandles = async () => {
       try {
@@ -217,9 +259,9 @@ export default function StrategyEngineDashboard({
         if (!res5m.ok) return;
         const d5m = await res5m.json();
         const candles5 = d5m.candles || [];
-        
+
         if (candles5.length < 3) return;
-        
+
         const latest5 = candles5[candles5.length - 1];
         const vwapVal = d5m.overlays?.vwap?.[d5m.overlays.vwap.length - 1]?.value || latest5.close;
 
@@ -232,7 +274,7 @@ export default function StrategyEngineDashboard({
             const alertKey = latest5.time + "_" + p.name;
             if (!alertedCandlesRef.current.has(alertKey)) {
               alertedCandlesRef.current.add(alertKey);
-              
+
               const newAlert = {
                 id: Date.now() + Math.random(),
                 type: p.signal === 'CE' ? 'bullish' : p.signal === 'PE' ? 'bearish' : 'neutral',
@@ -241,11 +283,14 @@ export default function StrategyEngineDashboard({
                 action: `Consider ${p.signal} — confirm on 15-min before entry`,
                 timestamp: new Date().toLocaleTimeString('en-IN')
               };
-              
+
+              // Guard: only setState if component is still mounted
+              if (!aliveRef.current) return;
               setActiveAlerts(prev => [...prev, newAlert]);
               setAlertsLog(prev => [newAlert, ...prev]);
-              
+
               setTimeout(() => {
+                if (!aliveRef.current) return;
                 setActiveAlerts(prev => prev.filter(a => a.id !== newAlert.id));
               }, 5000);
             }
@@ -257,7 +302,7 @@ export default function StrategyEngineDashboard({
     };
 
     pollCandles();
-    const interval = setInterval(pollCandles, 10000); // 10s poll
+    const interval = setInterval(pollCandles, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -354,7 +399,9 @@ export default function StrategyEngineDashboard({
         }
       }
 
-      const entryMid = activeStrategyRaw.entryVal || (activeStrategyRaw.conviction === 'HIGH' ? 95 : activeStrategyRaw.conviction === 'MEDIUM' ? 75 : 60);
+      const isHigh = activeStrategyRaw.conviction === 'HIGH' || (parseInt(activeStrategyRaw.conviction) >= 80);
+      const isMedium = activeStrategyRaw.conviction === 'MEDIUM' || (parseInt(activeStrategyRaw.conviction) >= 60);
+      const entryMid = activeStrategyRaw.entryVal || (isHigh ? 95 : isMedium ? 75 : 60);
       const slVal = Math.round(entryMid * 0.68);
       const t1Val = Math.round(entryMid * 1.38);
       const t2Val = Math.round(entryMid * 1.76);
@@ -396,7 +443,9 @@ export default function StrategyEngineDashboard({
         }
       }
 
-      const entryMid = currentStrategyRaw.entryVal || (currentStrategyRaw.conviction === 'HIGH' ? 95 : currentStrategyRaw.conviction === 'MEDIUM' ? 75 : 60);
+      const isHigh = currentStrategyRaw.conviction === 'HIGH' || (parseInt(currentStrategyRaw.conviction) >= 80);
+      const isMedium = currentStrategyRaw.conviction === 'MEDIUM' || (parseInt(currentStrategyRaw.conviction) >= 60);
+      const entryMid = currentStrategyRaw.entryVal || (isHigh ? 95 : isMedium ? 75 : 60);
       const slVal = Math.round(entryMid * 0.68);
       const t1Val = Math.round(entryMid * 1.38);
       const t2Val = Math.round(entryMid * 1.76);
@@ -505,6 +554,22 @@ export default function StrategyEngineDashboard({
   }, []);
 
   if (mini) {
+    if (isHolidayOrWeekend) {
+      return (
+        <div style={{
+          background: 'rgba(11,15,25,0.4)',
+          border: '1px dashed rgba(255,255,255,0.08)',
+          borderRadius: 8,
+          padding: '12px 16px',
+          margin: '12px 0 16px',
+          textAlign: 'center',
+          fontSize: 11,
+          color: '#64748b'
+        }}>
+          🔒 Strategy Engine Locked (Market Holiday)
+        </div>
+      );
+    }
     if (!currentStrategy) return null;
     const isCE = currentStrategy.recommendation.includes('CE');
     const isAvoid = currentStrategy.recommendation === 'AVOID';
@@ -609,7 +674,20 @@ export default function StrategyEngineDashboard({
       <div className="strategy-engine-grid">
         {/* Left Column: Active Strategy Card */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {activeStrategy ? (() => {
+          {isHolidayOrWeekend ? (
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.01)',
+              border: '1px dashed rgba(255, 255, 255, 0.08)',
+              borderRadius: 12,
+              padding: '40px 20px',
+              textAlign: 'center',
+              color: '#64748b'
+            }}>
+              <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
+              <strong style={{ display: 'block', color: '#cbd5e1', fontSize: 14, marginBottom: 6 }}>Strategy Engine Locked</strong>
+              <span style={{ fontSize: 11 }}>No active windows. Market is closed for holiday/weekend.</span>
+            </div>
+          ) : activeStrategy ? (() => {
             const isCE = activeStrategy.recommendation.includes('CE');
             const isAvoid = activeStrategy.recommendation === 'AVOID';
             const bcClass = isAvoid ? 'strategy-glow-AVOID' : isCE ? 'strategy-glow-CE' : 'strategy-glow-PE';
@@ -623,8 +701,13 @@ export default function StrategyEngineDashboard({
                 border: '1px solid rgba(255,255,255,0.08)'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: 10 }}>
-                  <span style={{ fontSize: 11, color: '#64748b', fontWeight: 'bold', fontFamily: 'monospace' }}>
+                  <span style={{ fontSize: 11, color: '#64748b', fontWeight: 'bold', fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 6 }}>
                     ⏱ {activeStrategy.time} WINDOW {selectedHistIdx !== null && '(HISTORICAL VIEW)'}
+                    {activeStrategy.confirmed !== undefined && !isAvoid && (
+                      <span style={{ color: activeStrategy.confirmed ? '#00e676' : '#ff1744', border: `1px solid ${activeStrategy.confirmed ? '#00e67644' : '#ff174444'}`, background: activeStrategy.confirmed ? '#00e67610' : '#ff174410', padding: '1px 6px', borderRadius: 3, fontSize: 10 }}>
+                        {activeStrategy.confirmed ? 'CONFIRMED ✓' : 'UNCONFIRMED ⚠'}
+                      </span>
+                    )}
                   </span>
                   <span style={{ fontSize: 11, color: brandColor, fontWeight: 'bold', border: `1px solid ${brandColor}44`, background: `${brandColor}10`, padding: '2px 8px', borderRadius: 4 }}>
                     {isAvoid ? 'AVOID SETUP' : activeStrategy.conviction} CONVICTION
@@ -874,6 +957,7 @@ export default function StrategyEngineDashboard({
         iv={0.145}
         dte={3}
         newsScore={news?.score || 0}
+        isHolidayOrWeekend={isHolidayOrWeekend}
       />
 
       {/* Strategy History timeline strip */}
@@ -891,20 +975,20 @@ export default function StrategyEngineDashboard({
             const slotState = slotsState.find(s => s.slot === w.time) || {
               defaultType: w.recommendation,
               currentType: w.recommendation,
-              isLocked: w.isPast || w.isFuture,
-              status: w.isPast ? 'COMPLETED' : w.isCurrent ? 'ACTIVE' : 'FUTURE'
+              isLocked: w.isPast || w.isFuture || isHolidayOrWeekend,
+              status: isHolidayOrWeekend ? 'FUTURE' : (w.isPast ? 'COMPLETED' : w.isCurrent ? 'ACTIVE' : 'FUTURE')
             };
 
-            const isActive = w.isCurrent;
-            const isSelected = idx === selectedHistIdx;
+            const isActive = isHolidayOrWeekend ? false : w.isCurrent;
+            const isSelected = isHolidayOrWeekend ? false : (idx === selectedHistIdx);
 
-            const rec = slotState.currentType;
-            const isAvoid = rec === 'AVOID';
-            const isWatch = rec === 'WATCH';
-            const isCE = rec.includes('CE');
-            const isPE = rec.includes('PE');
-            const isFuture = slotState.status === 'FUTURE';
-            const isPast = slotState.status === 'COMPLETED';
+            const rec = isHolidayOrWeekend ? 'AVOID' : slotState.currentType;
+            const isAvoid = isHolidayOrWeekend || rec === 'AVOID';
+            const isWatch = !isHolidayOrWeekend && rec === 'WATCH';
+            const isCE = !isHolidayOrWeekend && rec.includes('CE');
+            const isPE = !isHolidayOrWeekend && rec.includes('PE');
+            const isFuture = isHolidayOrWeekend || slotState.status === 'FUTURE';
+            const isPast = !isHolidayOrWeekend && slotState.status === 'COMPLETED';
 
             const borderColor = isActive  ? '#FFB800'   // amber — current
               : isCE   ? '#00FF88'
@@ -948,15 +1032,20 @@ export default function StrategyEngineDashboard({
                 }}
               >
                 <div style={{ color: '#64748b', fontSize: 9, marginBottom: 4 }}>{w.time}</div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: signalColor }}>
+                <div style={{ fontSize: 12, fontWeight: 900, color: signalColor, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                   {isFuture 
                     ? '🔒' 
                     : isAvoid 
                       ? 'AVOID' 
                       : isWatch 
                         ? 'WATCH' 
-                        : isCE ? 'CE' : 'PE'
+                        : (isCE ? 'CE' : 'PE')
                   }
+                  {!isFuture && !isAvoid && !isWatch && w.confirmed !== undefined && (
+                    <span style={{ fontSize: 10, color: w.confirmed ? '#00e676' : '#ff1744' }} title={w.confirmed ? 'Confirmed by 5-min slope' : 'No 5-min slope confirmation'}>
+                      {w.confirmed ? '✓' : '⚠'}
+                    </span>
+                  )}
                 </div>
                 {!isFuture && !isAvoid && !isWatch && (
                   <div style={{

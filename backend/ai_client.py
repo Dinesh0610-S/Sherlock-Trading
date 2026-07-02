@@ -50,12 +50,49 @@ def call_llm(prompt: str, system_prompt: str = None, temperature: float = 0.7, t
         except Exception as e:
             logger.warning(f"DeepSeek Cloud API request failed: {e}. Falling back to Ollama...")
 
-    # Fallback to local Ollama llama3:8b
+    # Fallback to local Ollama with dynamic model detection
     try:
         logger.info("Attempting local Ollama API call...")
+        
+        # Detect available models from local Ollama tags endpoint
+        available_models = []
+        try:
+            tags_resp = requests.get("http://localhost:11434/api/tags", timeout=3)
+            if tags_resp.status_code == 200:
+                available_models = [m.get("name") for m in tags_resp.json().get("models", [])]
+            logger.info(f"Available Ollama models: {available_models}")
+        except Exception as detect_err:
+            logger.warning(f"Could not list Ollama models: {detect_err}")
+
+        # Choose the best available model
+        selected_model = "llama3:8b"  # Default backup
+        if available_models:
+            preferred = [
+                "hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:latest",
+                "llama3:8b",
+                "llama3",
+                "llama3.2"
+            ]
+            found = False
+            for p in preferred:
+                if p in available_models:
+                    selected_model = p
+                    found = True
+                    break
+            if not found:
+                for m in available_models:
+                    if "instruct" in m.lower() or "llama" in m.lower():
+                        selected_model = m
+                        found = True
+                        break
+            if not found:
+                selected_model = available_models[0]
+        
+        logger.info(f"Selected Ollama model for chat: {selected_model}")
+        
         url = "http://localhost:11434/api/generate"
         payload = {
-            "model": "llama3:8b",
+            "model": selected_model,
             "prompt": prompt,
             "stream": False
         }

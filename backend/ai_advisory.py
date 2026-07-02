@@ -577,6 +577,15 @@ def generate_sherlock_fallback_reply(message: str, ticker: str, metrics: dict, i
     r1 = float(metrics.get("r1", spot * 1.005))
     s2 = float(metrics.get("s2", spot * 0.99))
     r2 = float(metrics.get("r2", spot * 1.01))
+
+    # Advanced Indicators
+    psar = float(metrics.get("psar", 0.0))
+    fib = metrics.get("fibonacci", {}) or {}
+    fib_382 = float(fib.get("level382", 0.0))
+    fib_500 = float(fib.get("level500", 0.0))
+    fib_618 = float(fib.get("level618", 0.0))
+    cmf = float(metrics.get("cmf", 0.0))
+    obv = float(metrics.get("obv", 0.0))
     
     msg_lower = message.lower()
     
@@ -589,11 +598,11 @@ def generate_sherlock_fallback_reply(message: str, ticker: str, metrics: dict, i
             signal = "BULLISH BREAKOUT"
             reason = "Watson, the price action has defended the institutional VWAP support floor of ₹{:.2f} with strong volume support.".format(vwap)
             entry = spot
-            sl = round(spot - 50.0, 2)
-            t1 = round(spot + 50.0, 2)
-            t2 = round(spot + 100.0, 2)
-            t3 = round(spot + 150.0, 2)
-            entry_minus_sl = 50.0
+            sl = round(psar, 2) if (psar > 0 and psar < spot) else round(spot - 50.0, 2)
+            t1 = round(fib_382, 2) if (fib_382 > spot) else round(spot + 50.0, 2)
+            t2 = round(fib_500, 2) if (fib_500 > t1) else round(spot + 100.0, 2)
+            t3 = round(fib_618, 2) if (fib_618 > t2) else round(spot + 150.0, 2)
+            entry_minus_sl = abs(entry - sl) if abs(entry - sl) > 0 else 50.0
             margin = 350000
             
             rsi_contrib = 15 if rsi > 50 else 5
@@ -618,24 +627,25 @@ def generate_sherlock_fallback_reply(message: str, ticker: str, metrics: dict, i
                 f"| RSI (14) | {rsi:.1f} | Bullish momentum |\n"
                 f"| EMA Status | ₹{ema9:.2f} / ₹{ema21:.2f} | Bullish cross |\n"
                 f"| VWAP | ₹{vwap:.2f} | Price above VWAP (Bullish) |\n"
-                f"| PCR | {pcr:.2f} | Strong put writing floor |\n\n"
+                f"| PCR | {pcr:.2f} | Strong put writing floor |\n"
+                f"| CMF / OBV | {cmf:.4f} / {obv:.0f} | Vol Pressure: {'Bullish' if cmf > 0.02 else 'Bearish' if cmf < -0.02 else 'Neutral'} |\n\n"
                 f"### ⚡ Signal\n"
                 f"**{signal}**\n"
                 f"_{reason}_\n\n"
                 f"### 🎯 Trade Setup\n"
                 f"| | Price | Notes |\n"
                 f"|--|-------|-------|\n"
-                f"| **Entry** | ₹{entry:.2f} | Direct breakout above VWAP level |\n"
-                f"| **Stop Loss** | ₹{sl:.2f} | Placed below nearest support pivot of ₹{s1:.2f} |\n"
-                f"| **Target 1** | ₹{t1:.2f} | R:R 1:1 ratio target |\n"
-                f"| **Target 2** | ₹{t2:.2f} | R:R 1:2 ratio target |\n"
-                f"| **Target 3** | ₹{t3:.2f} | R:R 1:3 ratio target |\n\n"
+                f"| **Entry** | ₹{entry:.2f} | Breakout above VWAP level |\n"
+                f"| **Stop Loss** | ₹{sl:.2f} | Parabolic SAR Trailing SL |\n"
+                f"| **Target 1** | ₹{t1:.2f} | Fibonacci 38.2% Retracement |\n"
+                f"| **Target 2** | ₹{t2:.2f} | Fibonacci 50.0% Retracement |\n"
+                f"| **Target 3** | ₹{t3:.2f} | Fibonacci 61.8% Retracement |\n\n"
                 f"### 💰 Position Sizing\n"
                 f"> **Capital assumed: ₹10,00,000 (1% risk rule)**\n"
                 f"- Risk per trade: **₹10,000**\n"
                 f"- Points at risk: **{entry_minus_sl:.1f} pts**\n"
                 f"- Lot size (Nifty): **25 units**\n"
-                f"- Recommended lots: **{int(10000 / (entry_minus_sl * 25))} lots**\n"
+                f"- Recommended lots: **{int(10000 / (entry_minus_sl * 25)) if entry_minus_sl > 0 else 8} lots**\n"
                 f"- Approx margin: **₹{margin}**\n\n"
                 f"### 📈 Confidence Breakdown\n"
                 f"```\n"
@@ -659,11 +669,11 @@ def generate_sherlock_fallback_reply(message: str, ticker: str, metrics: dict, i
             signal = "BEARISH BREAKDOWN"
             reason = "Watson, the price action has breached below the key VWAP level of ₹{:.2f} and the 9/21 EMA crossover has aligned bearishly.".format(vwap)
             entry = spot
-            sl = round(spot + 50.0, 2)
-            t1 = round(spot - 50.0, 2)
-            t2 = round(spot - 100.0, 2)
-            t3 = round(spot - 150.0, 2)
-            entry_minus_sl = 50.0
+            sl = round(psar, 2) if (psar > 0 and psar > spot) else round(spot + 50.0, 2)
+            t1 = round(fib_382, 2) if (fib_382 > 0 and fib_382 < spot) else round(spot - 50.0, 2)
+            t2 = round(fib_500, 2) if (fib_500 > 0 and fib_500 < t1) else round(spot - 100.0, 2)
+            t3 = round(fib_618, 2) if (fib_618 > 0 and fib_618 < t2) else round(spot - 150.0, 2)
+            entry_minus_sl = abs(entry - sl) if abs(entry - sl) > 0 else 50.0
             margin = 350000
             
             rsi_contrib = 15 if rsi < 50 else 5
@@ -688,24 +698,25 @@ def generate_sherlock_fallback_reply(message: str, ticker: str, metrics: dict, i
                 f"| RSI (14) | {rsi:.1f} | Bearish momentum |\n"
                 f"| EMA Status | ₹{ema9:.2f} / ₹{ema21:.2f} | Bearish cross |\n"
                 f"| VWAP | ₹{vwap:.2f} | Price below VWAP (Bearish) |\n"
-                f"| PCR | {pcr:.2f} | Call writing resistance |\n\n"
+                f"| PCR | {pcr:.2f} | Call writing resistance |\n"
+                f"| CMF / OBV | {cmf:.4f} / {obv:.0f} | Vol Pressure: {'Bullish' if cmf > 0.02 else 'Bearish' if cmf < -0.02 else 'Neutral'} |\n\n"
                 f"### ⚡ Signal\n"
                 f"**{signal}**\n"
                 f"_{reason}_\n\n"
                 f"### 🎯 Trade Setup\n"
                 f"| | Price | Notes |\n"
                 f"|--|-------|-------|\n"
-                f"| **Entry** | ₹{entry:.2f} | Direct short on breakdown below VWAP level |\n"
-                f"| **Stop Loss** | ₹{sl:.2f} | Placed above nearest resistance pivot of ₹{r1:.2f} |\n"
-                f"| **Target 1** | ₹{t1:.2f} | R:R 1:1 ratio target |\n"
-                f"| **Target 2** | ₹{t2:.2f} | R:R 1:2 ratio target |\n"
-                f"| **Target 3** | ₹{t3:.2f} | R:R 1:3 ratio target |\n\n"
+                f"| **Entry** | ₹{entry:.2f} | Breakdown below VWAP level |\n"
+                f"| **Stop Loss** | ₹{sl:.2f} | Parabolic SAR Trailing SL |\n"
+                f"| **Target 1** | ₹{t1:.2f} | Fibonacci 38.2% Retracement |\n"
+                f"| **Target 2** | ₹{t2:.2f} | Fibonacci 50.0% Retracement |\n"
+                f"| **Target 3** | ₹{t3:.2f} | Fibonacci 61.8% Retracement |\n\n"
                 f"### 💰 Position Sizing\n"
                 f"> **Capital assumed: ₹10,00,000 (1% risk rule)**\n"
                 f"- Risk per trade: **₹10,000**\n"
                 f"- Points at risk: **{entry_minus_sl:.1f} pts**\n"
                 f"- Lot size (Nifty): **25 units**\n"
-                f"- Recommended lots: **{int(10000 / (entry_minus_sl * 25))} lots**\n"
+                f"- Recommended lots: **{int(10000 / (entry_minus_sl * 25)) if entry_minus_sl > 0 else 8} lots**\n"
                 f"- Approx margin: **₹{margin}**\n\n"
                 f"### 📈 Confidence Breakdown\n"
                 f"```\n"
@@ -747,6 +758,31 @@ def generate_sherlock_fallback_reply(message: str, ticker: str, metrics: dict, i
             val_str = f"VWAP = ₹{vwap:.2f}"
             desc = f"VWAP is the average price the asset has traded at throughout the day, based on both volume and price. Right now, the spot price of ₹{spot:.2f} is trading {'above' if spot > vwap else 'below'} the VWAP level of ₹{vwap:.2f}."
             analogy = "Think of it like the magnetic north of the day: institutional buyers want to buy near or below this line, never too far above."
+        elif "cmf" in msg_lower or "chaikin" in msg_lower:
+            cmf_val = float(metrics.get("cmf", 0.0))
+            indicator_name = "Chaikin Money Flow (CMF)"
+            val_str = f"CMF = {cmf_val:.4f}"
+            desc = f"Chaikin Money Flow (CMF) measures the amount of Money Flow Volume over a 20-period lookback. Currently, CMF is at {cmf_val:.4f}, indicating {'bullish institutional accumulation' if cmf_val > 0.05 else 'bearish institutional distribution' if cmf_val < -0.05 else 'neutral volume pressure'}."
+            analogy = "Think of it like water filling a reservoir: a positive flow means clean capital is streaming in, while a negative flow suggests the reservoir is leaking."
+        elif "obv" in msg_lower or "volume pressure" in msg_lower:
+            obv_val = float(metrics.get("obv", 0.0))
+            indicator_name = "On Balance Volume (OBV)"
+            val_str = f"OBV = {obv_val}"
+            desc = f"On Balance Volume (OBV) uses volume flow to predict changes in stock price. By adding volume on up days and subtracting on down days, it reveals cumulative pressure. Currently, OBV is at {obv_val}."
+            analogy = "Think of OBV as a pressure cooker: even if the lid (price) doesn't move, a rise in steam (OBV) indicates an impending explosion."
+        elif "sar" in msg_lower or "psar" in msg_lower or "trailing stop" in msg_lower:
+            psar_val = float(metrics.get("psar", spot))
+            indicator_name = "Parabolic SAR (Trailing Stop-Loss)"
+            val_str = f"PSAR = ₹{psar_val:.2f}"
+            desc = f"The Parabolic SAR is a trailing stop-loss metric designed to highlight short-term trend reversals. Since the spot price is ₹{spot:.2f} and the PSAR is at ₹{psar_val:.2f}, the stop is placed {'below' if spot > psar_val else 'above'} the price."
+            analogy = "Think of it like a safety rope following a climber: as you ascend, the safety knot moves up, securing your progress but never slipping down."
+        elif "fibonacci" in msg_lower or "retracement" in msg_lower or "target" in msg_lower:
+            fib = metrics.get("fibonacci", {})
+            fib_500 = float(fib.get("level500", spot))
+            indicator_name = "Fibonacci Retracements"
+            val_str = f"50.0% Retracement = ₹{fib_500:.2f}"
+            desc = f"Fibonacci Retracements are used to define target matrices and support floors. The core levels are: 23.6% (₹{fib.get('level236', 0.0):.2f}), 38.2% (₹{fib.get('level382', 0.0):.2f}), 50.0% (₹{fib_500:.2f}), and 61.8% (₹{fib.get('level618', 0.0):.2f})."
+            analogy = "Think of it like a rubber ball bouncing down a staircase: it will naturally find temporary balance on specific steps (Fibonacci levels) before continuing."
 
         low_meaning = "Oversold or Bearish"
         low_action = "Look for reversal support buys"
@@ -849,7 +885,7 @@ Structured Technical Posture (Clean JSON):
 Previous Conversation:
 {history_str}
 
-Answer Watson's query about technical posture using this data. Highlight specific clues: spot price, RSI, EMA, PCR, VWAP, and support/resistance boundaries. Keep it in character.
+Answer Watson's query about technical posture using this data. Highlight specific clues: spot price, RSI, EMA, PCR, VWAP, support/resistance boundaries, CMF (Chaikin Money Flow), OBV (On Balance Volume), Parabolic SAR, and Fibonacci Retracements. Keep it in character.
 """
             reply_text = call_llm(prompt, system_prompt=system_prompt, temperature=0.5, timeout=8)
             
@@ -909,6 +945,12 @@ def get_sherlock_signal(ticker: str, direction: str, metrics: dict = None) -> st
     vwap_val = float(metrics.get('vwap_val', spot)) if metrics else spot
     rsi = metrics.get('rsi', 50.0) if metrics else 50.0
 
+    # Advanced Indicators
+    psar = float(metrics.get("psar", 0.0)) if metrics else 0.0
+    fib = metrics.get("fibonacci", {}) or {} if metrics else {}
+    fib_382 = float(fib.get("level382", 0.0))
+    fib_500 = float(fib.get("level500", 0.0))
+
     # Apply RSI safety gates first
     gate_result = apply_rsi_safety_gates(rsi, direction, 80)
     if gate_result.get("blocked_signal"):
@@ -924,16 +966,16 @@ def get_sherlock_signal(ticker: str, direction: str, metrics: dict = None) -> st
 
     if direction == "LONG":
         entry = spot
-        sl = round(spot - 50.0, 2)
-        t1 = round(spot + 50.0, 2)
-        t2 = round(spot + 100.0, 2)
+        sl = round(psar, 2) if (psar > 0 and psar < spot) else round(spot - 50.0, 2)
+        t1 = round(fib_382, 2) if (fib_382 > spot) else round(spot + 50.0, 2)
+        t2 = round(fib_500, 2) if (fib_500 > t1) else round(spot + 100.0, 2)
         return (
             f"### ⚡ **SIGNAL**: BULLISH BREAKOUT on **{ticker}**\n"
             f"- **CONFIDENCE**: 85% (based on EMA and VWAP indicators)\n"
             f"- **ENTRY ZONE**: 15-Min candle close above **₹{vwap_val:.2f}**\n"
-            f"- **STOP LOSS**: **₹{sl:.2f}** (strictly enforced below support floor of ₹{sl:.2f})\n"
-            f"- **TARGET 1**: **₹{t1:.2f}** (R:R 1:1)\n"
-            f"- **TARGET 2**: **₹{t2:.2f}** (R:R 1:2)\n"
+            f"- **STOP LOSS**: **₹{sl:.2f}** (Parabolic SAR Trailing SL)\n"
+            f"- **TARGET 1**: **₹{t1:.2f}** (Fibonacci 38.2% Retracement)\n"
+            f"- **TARGET 2**: **₹{t2:.2f}** (Fibonacci 50.0% Retracement)\n"
             f"- **RISK-REWARD**: 1:2.00 target matrix\n"
             f"- **VALIDITY**: End of active session\n"
             f"- **POSITION SIZE RULE**: Risk no more than 1% of total capital\n"
@@ -942,9 +984,9 @@ def get_sherlock_signal(ticker: str, direction: str, metrics: dict = None) -> st
         )
     elif direction == "SHORT":
         entry = spot
-        sl = round(spot + 50.0, 2)
-        t1 = round(spot - 50.0, 2)
-        t2 = round(spot - 100.0, 2)
+        sl = round(psar, 2) if (psar > 0 and psar > spot) else round(spot + 50.0, 2)
+        t1 = round(fib_382, 2) if (fib_382 > 0 and fib_382 < spot) else round(spot - 50.0, 2)
+        t2 = round(fib_500, 2) if (fib_500 > 0 and fib_500 < t1) else round(spot - 100.0, 2)
         return (
             f"### ⚡ **SIGNAL**: BEARISH BREAKDOWN on **{ticker}**\n"
             f"- **CONFIDENCE**: 82% (based on EMA and VWAP indicators)\n"

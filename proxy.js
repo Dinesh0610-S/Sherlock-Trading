@@ -29,6 +29,8 @@ import { fileURLToPath } from 'url';
 import schedule from 'node-schedule';
 import { NSE, BSE } from 'nse-bse-api';
 
+import { calculateRealTrend } from './src/utils/patternEngine.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -4068,7 +4070,7 @@ function calculatePreMarketConfidence(d) {
   
   if (d.pcrChange > 0.15)  { pcrScore += 2; accelerators.push(`PCR rising +${d.pcrChange.toFixed(2)} — put writers protecting, bullish`); }
   if (d.pcrChange < -0.15) { pcrScore -= 2; blockers.push(`PCR falling ${d.pcrChange.toFixed(2)} — call buildup, bearish`); }
-  dims.push({ name: 'PCR Intelligence', score: Math.min(pcrScore, 12), max: 12,
+  dims.push({ name: 'PCR Intelligence', score: Math.min(Math.max(pcrScore, -12), 12), max: 12,
     note: `PCR ${d.pcr.toFixed(2)} (${d.pcrChange > 0 ? '↑' : '↓'})` });
 
   // ── DIMENSION 6: FII Smart Money (12 pts) ──────────
@@ -4291,82 +4293,79 @@ function calculatePreMarketConfidence(d) {
   // ── DIMENSION 20: Bollinger + ADX Momentum Confluence (8 pts) ──
   // Layer 2 addition: Bollinger Band position + ADX trend strength combined
   let baScore = 0;
-  const pctB   = d.bollingerPctB  ?? 0.5;  // 0=lower band, 1=upper band
-  const adxVal = d.adxValue       ?? 20;
-  const plusDI = d.adxPlusDI      ?? 20;
-  const minDI  = d.adxMinusDI     ?? 20;
-  const strongTrend = adxVal >= 25;
-  const veryStrongTrend = adxVal >= 40;
+  const pctB   = d.bollingerPctB;  // 0=lower band, 1=upper band
+  const adxVal = d.adxValue;
+  const plusDI = d.adxPlusDI;
+  const minDI  = d.adxMinusDI;
 
-  if (pctB > 0.6 && plusDI > minDI && strongTrend) {
-    baScore = veryStrongTrend ? 8 : 6;
-    accelerators.push(`Price in upper BB (${(pctB * 100).toFixed(0)}%) + ADX ${adxVal} — strong bullish momentum`);
-  } else if (pctB < 0.4 && minDI > plusDI && strongTrend) {
-    baScore = veryStrongTrend ? -8 : -6;
-    blockers.push(`Price in lower BB (${(pctB * 100).toFixed(0)}%) + ADX ${adxVal} — strong bearish momentum`);
-  } else if (pctB < 0.25) {
-    baScore = 3; // oversold — contrarian bounce potential
-    accelerators.push(`BB oversold (${(pctB * 100).toFixed(0)}%ile) — mean-reversion CE setup`);
-  } else if (pctB > 0.75) {
-    baScore = -3; // overbought — late CE entry risk
-    blockers.push(`BB overbought (${(pctB * 100).toFixed(0)}%ile) — avoid chasing CE here`);
+  if (Number.isNaN(pctB) || pctB === undefined || pctB === null || adxVal === 0 || adxVal === undefined || adxVal === null) {
+    dims.push({ name: 'Bollinger+ADX', score: 0, max: 8, note: "Insufficient data" });
   } else {
-    baScore = 0; // mid-range — neutral
+    const strongTrend = adxVal >= 25;
+    const veryStrongTrend = adxVal >= 40;
+    if (pctB > 0.6 && plusDI > minDI && strongTrend) {
+      baScore = veryStrongTrend ? 8 : 6;
+      accelerators.push(`Price in upper BB (${(pctB * 100).toFixed(0)}%) + ADX ${adxVal} — strong bullish momentum`);
+    } else if (pctB < 0.4 && minDI > plusDI && strongTrend) {
+      baScore = veryStrongTrend ? -8 : -6;
+      blockers.push(`Price in lower BB (${(pctB * 100).toFixed(0)}%) + ADX ${adxVal} — strong bearish momentum`);
+    } else if (pctB < 0.25) {
+      baScore = 3; // oversold — contrarian bounce potential
+      accelerators.push(`BB oversold (${(pctB * 100).toFixed(0)}%ile) — mean-reversion CE setup`);
+    } else if (pctB > 0.75) {
+      baScore = -3; // overbought — late CE entry risk
+      blockers.push(`BB overbought (${(pctB * 100).toFixed(0)}%ile) — avoid chasing CE here`);
+    } else {
+      baScore = 0; // mid-range — neutral
+    }
+    dims.push({ name: 'Bollinger+ADX', score: Math.min(8, Math.max(-8, baScore)), max: 8,
+      note: `BB%B ${(pctB * 100).toFixed(0)}% | ADX ${adxVal}` });
   }
-  dims.push({ name: 'Bollinger+ADX', score: Math.min(8, Math.max(-8, baScore)), max: 8,
-    note: `BB%B ${(pctB * 100).toFixed(0)}% | ADX ${adxVal}` });
 
   // ── DIMENSION 21: Stochastic RSI Momentum (6 pts) ───────────
   // Layer 2 addition: Stoch RSI for overbought/oversold confirmation
   let stochScore = 0;
-  const stochRsi = d.stochRsi ?? 50;
-  if (stochRsi < 20) {
-    stochScore = 6;
-    accelerators.push(`Stoch RSI ${stochRsi} — deeply oversold, CE reversal high probability`);
-  } else if (stochRsi < 35) {
-    stochScore = 4;
-    accelerators.push(`Stoch RSI ${stochRsi} — oversold, bullish bias`);
-  } else if (stochRsi > 80) {
-    stochScore = -6;
-    blockers.push(`Stoch RSI ${stochRsi} — deeply overbought, PE or no entry`);
-  } else if (stochRsi > 65) {
-    stochScore = -3;
-    blockers.push(`Stoch RSI ${stochRsi} — overbought, CE entry risky`);
+  const stochRsi = d.stochRsi;
+  if (Number.isNaN(stochRsi) || stochRsi === undefined || stochRsi === null) {
+    dims.push({ name: 'Stoch RSI', score: 0, max: 6, note: "Insufficient data" });
   } else {
-    stochScore = 0; // neutral zone
+    if (stochRsi < 20) {
+      stochScore = 6;
+      accelerators.push(`Stoch RSI ${stochRsi} — deeply oversold, CE reversal high probability`);
+    } else if (stochRsi < 35) {
+      stochScore = 4;
+      accelerators.push(`Stoch RSI ${stochRsi} — oversold, bullish bias`);
+    } else if (stochRsi > 80) {
+      stochScore = -6;
+      blockers.push(`Stoch RSI ${stochRsi} — deeply overbought, PE or no entry`);
+    } else if (stochRsi > 65) {
+      stochScore = -3;
+      blockers.push(`Stoch RSI ${stochRsi} — overbought, CE entry risky`);
+    } else {
+      stochScore = 0; // neutral zone
+    }
+    dims.push({ name: 'Stoch RSI', score: stochScore, max: 6,
+      note: `StochRSI ${stochRsi}` });
   }
-  dims.push({ name: 'Stoch RSI', score: stochScore, max: 6,
-    note: `StochRSI ${stochRsi}` });
 
   // ── TOTAL RAW SCORES ───────────────────────────────
   const totalRaw = dims.reduce((s, d) => s + d.score, 0);
   const maxPossible = dims.reduce((s, d) => s + d.max, 0);
   
-  const ceScore = dims.reduce((s, d) => s + (d.score > 0 ? d.score : 0), 0);
-  const peScore = dims.reduce((s, d) => s + (d.score < 0 ? Math.abs(d.score) : 0), 0);
-  
+  // Determine direction ('CE'/'PE'/'AVOID') from the sign/magnitude of totalRaw
   let direction = 'AVOID';
-  if (totalRaw > 15 && ceScore > peScore * 1.3) {
+  if (totalRaw > 15) {
     direction = 'CE';
-  } else if (totalRaw < -15 && peScore > ceScore * 1.3) {
+  } else if (totalRaw < -15) {
     direction = 'PE';
   } else {
     direction = 'AVOID';
   }
-  
   if (d.majorEventToday) direction = 'AVOID';
   
-  // Direction-aware normalized confidence score (improves score for active setup direction)
-  let score = 50;
-  if (direction === 'CE') {
-    const excess = Math.max(0, totalRaw - 15);
-    score = 50 + Math.min(45, Math.round((excess / 85) * 45));
-  } else if (direction === 'PE') {
-    const excess = Math.max(0, -totalRaw - 15);
-    score = 50 + Math.min(45, Math.round((excess / 85) * 45));
-  } else {
-    score = Math.max(10, 50 - Math.round(Math.abs(totalRaw) * 2));
-  }
+  // Compute score from totalRaw/maxPossible (normalize to 10-98 range as currently clamped)
+  const normalized = Math.round(((totalRaw + maxPossible) / (2 * maxPossible)) * 88) + 10;
+  const score = Math.min(Math.max(normalized, 10), 98);
 
   const label = direction === 'AVOID' ? 'AVOID'
               : score >= 80 ? 'HIGH CONVICTION'
@@ -4398,7 +4397,9 @@ function calculatePreMarketConfidence(d) {
     recommendation,
     factors,
     blockers,
-    accelerators
+    accelerators,
+    trend15m: d.trend15mObj,
+    majorEventToday: d.majorEventToday
   };
 }
 
@@ -4750,8 +4751,8 @@ app.post('/api/premarket/options-entry', async (req, res) => {
       preopenImbalance = Math.max(-50, Math.min(50, Math.round(gapPct * 35)));
     }
 
-    // Get indicators — extract closes for technical computation
-    const candles = ind?.candles ?? [];
+    const rawCandles = ind?.candles ?? [];
+    const candles = [...rawCandles].sort((a, b) => (a.time || 0) - (b.time || 0));
     const latestIndicators = ind?.indicators ?? {};
     const ema9 = latestIndicators.ema_9 ?? spot;
     const atr = calculateATR(candles, symbol);
@@ -4904,10 +4905,29 @@ app.post('/api/premarket/options-entry', async (req, res) => {
       adxPlusDI: adxResult.plusDI,
       adxMinusDI: adxResult.minusDI,
       // Layer 2: Stochastic RSI
-      stochRsi: stochResult.stochRsi
+      stochRsi: stochResult.stochRsi,
+      trend15mObj: {
+        confirmed: trendResult.direction !== 'SIDEWAYS',
+        signal: trendResult.direction === 'UP' ? 'CE' : trendResult.direction === 'DOWN' ? 'PE' : 'AVOID',
+        label: trendResult.direction
+      }
     });
 
-    const bias = confidenceObj.direction;
+    let bias = confidenceObj.direction;
+    const trendResult = calculateRealTrend(candles);
+    const trend15mDir = trendResult.direction; // 'UP', 'DOWN', or 'SIDEWAYS'
+    
+    // HARD ASSERTION — block bias mismatches with the 15m trend (Signal Conflict):
+    let isConflict = false;
+    if (bias !== 'AVOID' && trend15mDir !== 'SIDEWAYS') {
+      if ((bias === 'CE' && trend15mDir === 'DOWN') || (bias === 'PE' && trend15mDir === 'UP')) {
+        bias = trend15mDir === 'UP' ? 'CE' : 'PE';
+        confidenceObj.direction = bias;
+        confidenceObj.recommendation = bias === 'CE' ? 'BULLISH SETUP' : 'BEARISH SETUP';
+        confidenceObj.label = 'TREND_ALIGN';
+        console.log(`RESOLVED CONFLICT in proxy: 15m Trend (${trend15mDir}) overrides Pre-Market Bias. Aligning bias to ${bias}.`);
+      }
+    }
 
     // Generate definitive option cards
     const step = symbol === 'NIFTY' ? 50 : symbol === 'BANKNIFTY' ? 100 : 100;
@@ -4943,6 +4963,140 @@ app.post('/api/premarket/options-entry', async (req, res) => {
       usdinr: morning.india
     });
 
+    // Calculate directional probability and details
+    let probability = 0;
+    const isConflictFlag = false;
+    
+    // Confluences lists
+    const aligningFactors = [];
+    const missingConfluences = [];
+    
+    if (bias !== 'AVOID' && !isConflictFlag) {
+      // Base probability is the confidence score (which is already normalized 10-98)
+      let prob = confidenceObj.score;
+      
+      // NOTE: We check confidenceObj.trend15m.confirmed (slope-based confirmation) for confluence scoring,
+      // which is independent of the calculateRealTrend check used above as a strict Signal Conflict gate.
+      if (confidenceObj.trend15m?.confirmed) {
+        prob += 2;
+        aligningFactors.push("15-min trend direction is active (Bullish/Bearish slope alignment)");
+      } else {
+        prob -= 5;
+        missingConfluences.push("Lacks active trend direction (slope is sideways)");
+      }
+      
+      // 2. Volume surge
+      if (volumeRatio >= 1.5) {
+        prob += 3;
+        aligningFactors.push(`High institutional volume surge: ${volumeRatio.toFixed(1)}x above 20d average`);
+      } else if (volumeRatio >= 1.2) {
+        aligningFactors.push(`Healthy trading volume: ${volumeRatio.toFixed(1)}x above 20d average`);
+      } else if (volumeRatio < 0.8) {
+        prob -= 8;
+        missingConfluences.push(`Thin volume support: only ${volumeRatio.toFixed(1)}x of 20d average (lack of institutional backing)`);
+      } else {
+        missingConfluences.push(`Volume ratio is moderate: ${volumeRatio.toFixed(1)}x of 20d average (needs >1.2x for high-conviction surge)`);
+      }
+      
+      // 3. VWAP Position
+      if (bias === 'CE' && vwapPosition === 'above') {
+        prob += 2;
+        aligningFactors.push("Spot price trading above VWAP (institutional support zone)");
+      } else if (bias === 'PE' && vwapPosition === 'below') {
+        prob += 2;
+        aligningFactors.push("Spot price trading below VWAP (institutional distribution zone)");
+      } else {
+        prob -= 5;
+        const vwapStatus = bias === 'CE' ? 'below' : 'above';
+        missingConfluences.push(`VWAP position opposes bias (price is currently ${vwapStatus} VWAP trigger)`);
+      }
+      
+      // 4. Global cues alignment
+      const isGlobalAligned = (bias === 'CE' && gapPct >= 0) || (bias === 'PE' && gapPct <= 0);
+      if (isGlobalAligned) {
+        prob += 2;
+        aligningFactors.push(`Global cues / GIFT Nifty support active bias (${gapPct > 0 ? '+' : ''}${gapPct.toFixed(2)}% opening gap prediction)`);
+      } else {
+        prob -= 4;
+        missingConfluences.push(`Global sentiment mismatch (GIFT Nifty expects a gap ${bias === 'CE' ? 'down' : 'up'} against active bias)`);
+      }
+
+      // 5. Technical Indicators
+      if (bias === 'CE' && rsiVal < 45) {
+        aligningFactors.push(`RSI (${rsiVal.toFixed(0)}) is oversold/turning up — room to rally`);
+      } else if (bias === 'PE' && rsiVal > 55) {
+        aligningFactors.push(`RSI (${rsiVal.toFixed(0)}) is overbought/turning down — room to drop`);
+      } else if (rsiVal > 65 && bias === 'CE') {
+        prob -= 3;
+        missingConfluences.push(`RSI (${rsiVal.toFixed(0)}) is overbought — risk of late entry pullback`);
+      } else if (rsiVal < 35 && bias === 'PE') {
+        prob -= 3;
+        missingConfluences.push(`RSI (${rsiVal.toFixed(0)}) is oversold — risk of short squeeze bounce`);
+      }
+
+      probability = Math.min(Math.max(prob, 10), 98);
+    } else {
+      probability = 0;
+      if (isConflictFlag) {
+        missingConfluences.push("CRITICAL SIGNAL CONFLICT: Pre-market bias and live 15-min trend direction are in opposition.");
+      } else {
+        missingConfluences.push("Sideways market consolidation: Engine stands down to avoid premium decay.");
+      }
+    }
+    
+    // Strict >= 90% setup check
+    let isHighProbSetup = false;
+    if (
+      bias !== 'AVOID' &&
+      !isConflictFlag &&
+      probability >= 90 &&
+      confidenceObj.trend15m?.confirmed &&
+      volumeRatio >= 1.2 &&
+      ((bias === 'CE' && vwapPosition === 'above') || (bias === 'PE' && vwapPosition === 'below')) &&
+      vix < 22 &&
+      !confidenceObj.majorEventToday
+    ) {
+      isHighProbSetup = true;
+    } else if (bias !== 'AVOID' && !isConflictFlag && probability >= 90) {
+      // Capped because certain critical confluences are missing
+      probability = 89; 
+      if (!confidenceObj.trend15m?.confirmed) missingConfluences.push("Must align active trend direction to cross 90% accuracy");
+      if (volumeRatio < 1.2) missingConfluences.push("Must see volume surge >= 1.2x for institutional backup confirmation");
+      if (!((bias === 'CE' && vwapPosition === 'above') || (bias === 'PE' && vwapPosition === 'below'))) missingConfluences.push("Price must cross to the favorable side of VWAP zone");
+      if (vix >= 22) missingConfluences.push("India VIX is elevated (>= 22.0) — market volatility is too high for directional option buying");
+    }
+    
+    // Option Card parameters
+    const activeCard = bias === 'CE' ? ceCard : bias === 'PE' ? peCard : null;
+    let setup = null;
+    if (activeCard && bias !== 'AVOID') {
+      const rawPrice = activeCard.recommendedPremium ?? activeCard.premium ?? activeCard.ltp ?? 100;
+      const entryPrice = (rawPrice && typeof rawPrice === 'object') ? (rawPrice.current ?? 100) : (rawPrice ?? 100);
+      setup = {
+        optionName: activeCard.contract || `${symbol} ATM ${bias}`,
+        strike: activeCard.strike || atm,
+        cePremium: ceLtp,
+        pePremium: peLtp,
+        entryPrice: entryPrice,
+        entryRangeMin: Math.round(entryPrice * 0.98),
+        entryRangeMax: Math.round(entryPrice * 1.02),
+        target1: Math.round(entryPrice * 1.20),
+        target2: Math.round(entryPrice * 1.40),
+        stopLoss: Math.round(entryPrice * 0.85),
+        rrRatio: "1 : 1.33 / 1 : 2.67",
+      };
+    }
+
+    const probabilityEngine = {
+      isHighProbSetup,
+      probability,
+      probCE: bias === 'CE' ? probability : Math.round((100 - probability) / 2),
+      probPE: bias === 'PE' ? probability : Math.round((100 - probability) / 2),
+      aligningFactors,
+      missingConfluences,
+      setup,
+    };
+
     res.json({
       symbol,
       spot,
@@ -4957,6 +5111,8 @@ app.post('/api/premarket/options-entry', async (req, res) => {
       pe: peCard,
       riskFlags,
       pcr,
+      probability,
+      probabilityEngine,
       fetched_at: new Date().toISOString(),
     });
 

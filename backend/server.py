@@ -209,7 +209,15 @@ def api_market_data():
                 "sma50": float(row.get("SMA_50", 0.0)),
                 "sma200": float(row.get("SMA_200", 0.0)),
                 "supertrend": float(row.get("Supertrend", 0.0)),
-                "supertrend_dir": int(row.get("Supertrend_Dir", 1))
+                "supertrend_dir": int(row.get("Supertrend_Dir", 1)),
+                "cmf": float(row.get("CMF", 0.0)),
+                "obv": float(row.get("OBV", 0.0)),
+                "psar": float(row.get("PSAR", 0.0)),
+                "fib_236": float(row.get("Fib_236", 0.0)),
+                "fib_382": float(row.get("Fib_382", 0.0)),
+                "fib_500": float(row.get("Fib_500", 0.0)),
+                "fib_618": float(row.get("Fib_618", 0.0)),
+                "fib_786": float(row.get("Fib_786", 0.0))
             })
             
         # Extract latest values for indicators dashboard
@@ -297,7 +305,17 @@ def api_market_data():
             "price_change_pct": price_change_pct,
             "spot_below_ema21": spot_below_ema21,
             "is_restricted": is_restricted,
-            "deduced_direction": deduced_direction
+            "deduced_direction": deduced_direction,
+            "cmf": float(latest_row.get("CMF", 0.0)),
+            "obv": float(latest_row.get("OBV", 0.0)),
+            "psar": float(latest_row.get("PSAR", 0.0)),
+            "fibonacci": {
+                "level236": float(latest_row.get("Fib_236", 0.0)),
+                "level382": float(latest_row.get("Fib_382", 0.0)),
+                "level500": float(latest_row.get("Fib_500", 0.0)),
+                "level618": float(latest_row.get("Fib_618", 0.0)),
+                "level786": float(latest_row.get("Fib_786", 0.0))
+            }
         }
         
         return jsonify({
@@ -624,7 +642,17 @@ def api_chat():
                         "s1":    round(s1, 2),
                         "r1":    round(r1, 2),
                         "s2":    round(s2, 2),
-                        "r2":    round(r2, 2)
+                        "r2":    round(r2, 2),
+                        "cmf": float(latest_row.get("CMF", 0.0)),
+                        "obv": float(latest_row.get("OBV", 0.0)),
+                        "psar": float(latest_row.get("PSAR", 0.0)),
+                        "fibonacci": {
+                            "level236": float(latest_row.get("Fib_236", 0.0)),
+                            "level382": float(latest_row.get("Fib_382", 0.0)),
+                            "level500": float(latest_row.get("Fib_500", 0.0)),
+                            "level618": float(latest_row.get("Fib_618", 0.0)),
+                            "level786": float(latest_row.get("Fib_786", 0.0))
+                        }
                     }
         
         result = get_sherlock_chat_response(message, ticker, history, metrics=metrics)

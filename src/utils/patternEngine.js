@@ -85,34 +85,156 @@ export function getNextExpiry(instrument) {
   return { date: expDate, dte: Math.max(0, dte), label };
 }
 
+export function verifyCandleOrder(candles) {
+  if (candles.length < 2) return true;
+  const first = candles[0].time;
+  const last  = candles[candles.length - 1].time;
+  
+  if (first > last) {
+    console.error('CANDLE ARRAY IS REVERSED — newest first, expected oldest first');
+    return false;
+  }
+  return true;
+}
+
+export function ensureChronological(candles) {
+  return [...candles].sort((a, b) => {
+    const tA = a.time ? String(a.time) : '';
+    const tB = b.time ? String(b.time) : '';
+    return tA.localeCompare(tB);
+  });
+}
+
+export function calculateRealTrend(rawCandles) {
+  const candles = ensureChronological(rawCandles);
+  
+  if (candles.length < 5) {
+    return { direction: 'SIDEWAYS', signal: 'WATCH', label: 'INSUFFICIENT DATA',
+      score: 0, slope: 0, details: '< 5 candles' };
+  }
+  
+  const slice = candles.slice(-Math.min(20, candles.length));
+  const n     = slice.length;
+  
+  const firstClose = slice[0].close;
+  const lastClose  = slice[n-1].close;
+  const priceChangePct = ((lastClose - firstClose) / (firstClose || 1)) * 100;
+  
+  const closes = slice.map(c => c.close);
+  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+  for (let i = 0; i < n; i++) {
+    sumX  += i;
+    sumY  += closes[i];
+    sumXY += i * closes[i];
+    sumX2 += i * i;
+  }
+  const denominator = (n * sumX2 - sumX * sumX);
+  const slope = denominator !== 0 ? (n * sumXY - sumX * sumY) / denominator : 0;
+  const slopePct = closes[0] !== 0 ? (slope / closes[0]) * 100 : 0;
+  
+  let bullCount = 0, bearCount = 0;
+  let bullVolume = 0, bearVolume = 0;
+  slice.forEach(c => {
+    if (c.close > c.open) { bullCount++; bullVolume += (c.volume || 0); }
+    else if (c.close < c.open) { bearCount++; bearVolume += (c.volume || 0); }
+  });
+  const candleRatio = (bullCount - bearCount) / n;
+  
+  const swingHighs = [];
+  const swingLows  = [];
+  
+  for (let i = 2; i < n - 2; i++) {
+    const c = slice[i];
+    if (c.high > slice[i-1].high && c.high > slice[i-2].high &&
+        c.high > slice[i+1].high && c.high > slice[i+2].high) {
+      swingHighs.push({ idx: i, price: c.high });
+    }
+    if (c.low < slice[i-1].low && c.low < slice[i-2].low &&
+        c.low < slice[i+1].low && c.low < slice[i+2].low) {
+      swingLows.push({ idx: i, price: c.low });
+    }
+  }
+  
+  swingHighs.sort((a,b) => a.idx - b.idx);
+  swingLows.sort((a,b) => a.idx - b.idx);
+  
+  let structureScore = 0;
+  if (swingHighs.length >= 2) {
+    const lastHigh = swingHighs[swingHighs.length-1].price;
+    const prevHigh = swingHighs[swingHighs.length-2].price;
+    if (lastHigh > prevHigh) structureScore += 1;
+    if (lastHigh < prevHigh) structureScore -= 1;
+  }
+  if (swingLows.length >= 2) {
+    const lastLow = swingLows[swingLows.length-1].price;
+    const prevLow = swingLows[swingLows.length-2].price;
+    if (lastLow > prevLow) structureScore += 1;
+    if (lastLow < prevLow) structureScore -= 1;
+  }
+  
+  const recentHigh = Math.max(...slice.map(c => c.high));
+  const recentLow  = Math.min(...slice.map(c => c.low));
+  const range = recentHigh - recentLow;
+  const positionInRange = range > 0 
+    ? (lastClose - recentLow) / range
+    : 0.5;
+  
+  let score = 0;
+  
+  if      (priceChangePct >  0.5)  score += 3;
+  else if (priceChangePct >  0.2)  score += 2;
+  else if (priceChangePct >  0.05) score += 1;
+  else if (priceChangePct > -0.05) score += 0;
+  else if (priceChangePct > -0.2)  score -= 1;
+  else if (priceChangePct > -0.5)  score -= 2;
+  else                              score -= 3;
+  
+  if      (slopePct >  0.05) score += 2;
+  else if (slopePct >  0.01) score += 1;
+  else if (slopePct > -0.01) score += 0;
+  else if (slopePct > -0.05) score -= 1;
+  else                        score -= 2;
+  
+  if      (candleRatio >  0.4)  score += 3;
+  else if (candleRatio >  0.15) score += 2;
+  else if (candleRatio >  0)    score += 1;
+  else if (candleRatio === 0)   score += 0;
+  else if (candleRatio > -0.15) score -= 1;
+  else if (candleRatio > -0.4)  score -= 2;
+  else                            score -= 3;
+  
+  score += structureScore;
+  
+  if      (positionInRange > 0.7) score += 1;
+  else if (positionInRange < 0.3) score -= 1;
+  
+  let direction;
+  let label;
+  let signal;
+
+  // FIX 3.2: SIDEWAYS band widened to cover -2 … +1 (was only exactly 0).
+  // A single bearish candle no longer immediately commits to DOWNTREND.
+  // UP requires score >= 2; DOWN requires score <= -3 for conviction.
+  if      (score >= 6)  { direction = 'UP';       label = 'STRONG UPTREND';   signal = 'CE';   }
+  else if (score >= 3)  { direction = 'UP';       label = 'UPTREND';          signal = 'CE';   }
+  else if (score >= 2)  { direction = 'UP';       label = 'SLIGHT UPTREND';   signal = 'CE';   }
+  else if (score >= -2) { direction = 'SIDEWAYS'; label = 'SIDEWAYS';         signal = 'WATCH';}
+  else if (score >= -5) { direction = 'DOWN';     label = 'DOWNTREND';        signal = 'PE';   }
+  else if (score >= -6) { direction = 'DOWN';     label = 'STRONG DOWNTREND'; signal = 'PE';   }
+  else                  { direction = 'DOWN';     label = 'STRONG DOWNTREND'; signal = 'PE';   }
+  
+  return {
+    direction, signal, label, score, slope: slopePct,
+    details: `priceChg:${priceChangePct.toFixed(2)}% slope:${slopePct.toFixed(3)}% `+
+             `candles:${bullCount}🟢/${bearCount}🔴 struct:${structureScore} pos:${positionInRange.toFixed(2)}`,
+  };
+}
+
 export function detectTrend(candles, period = 10) {
   if (!candles || candles.length < period) return 'SIDEWAYS';
-  const slice = candles.slice(-period);
-  const n = slice.length;
-  const first = slice[0].close;
-  if (first === 0) return 'SIDEWAYS';
-
-  let sumX = 0;
-  let sumY = 0;
-  let sumXY = 0;
-  let sumXX = 0;
-
-  for (let i = 0; i < n; i++) {
-    const x = i;
-    const y = slice[i].close / first; // normalized close price
-    sumX += x;
-    sumY += y;
-    sumXY += x * y;
-    sumXX += x * x;
-  }
-
-  const denominator = (n * sumXX) - (sumX * sumX);
-  if (denominator === 0) return 'SIDEWAYS';
-  const slope = ((n * sumXY) - (sumX * sumY)) / denominator;
-
-  if (slope > 0.0003) return 'UP';
-  if (slope < -0.0003) return 'DOWN';
-  return 'SIDEWAYS';
+  const sliced = candles.slice(-period);
+  const result = calculateRealTrend(sliced);
+  return result.direction;
 }
 
 export function calculateATR(candles, period = 14) {

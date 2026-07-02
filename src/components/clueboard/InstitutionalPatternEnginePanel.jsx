@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getNextExpiry, scanCandles, scanAllPatterns, calculateVWAP, buildTrendContext } from '../../utils/patternEngine';
+import { getNextExpiry, scanCandles, scanAllPatterns, calculateVWAP, buildTrendContext, calculateRealTrend as coreCalculateRealTrend } from '../../utils/patternEngine';
 import './ClueBoard.css';
 
 // Client-side Indicators Helper
@@ -263,26 +263,22 @@ function getMACDLabel(hist) {
 
 // TFTrend:
 function getTFTrend(candles) {
-  if (candles.length < 8) return { 
-    label: 'INSUFFICIENT DATA', slope: 0, color: '#888' 
+  const result = coreCalculateRealTrend(candles);
+  const colors = {
+    'STRONG UPTREND': '#00FF88',
+    'UPTREND': '#00CC66',
+    'SLIGHT UPTREND': '#88FF88',
+    'SIDEWAYS': '#FFB800',
+    'SLIGHT DOWNTREND': '#FF8866',
+    'DOWNTREND': '#FF4444',
+    'STRONG DOWNTREND': '#FF0000',
+    'INSUFFICIENT DATA': '#888888'
   };
-  
-  const slice  = candles.slice(-10).map(c => c.close);
-  const n      = slice.length;
-  const sumX   = n*(n-1)/2;
-  const sumX2  = n*(n-1)*(2*n-1)/6;
-  const sumY   = slice.reduce((s,x) => s+x, 0);
-  const sumXY  = slice.reduce((s,x,i) => s+i*x, 0);
-  const slope  = (n*sumXY - sumX*sumY) / (n*sumX2 - sumX*sumX);
-  const pctSlope = slope / slice[0] * 100;
-  
-  if      (pctSlope >  0.15) return { label: 'STRONG UPTREND',   slope: pctSlope, color: '#00FF88' };
-  else if (pctSlope >  0.05) return { label: 'UPTREND',          slope: pctSlope, color: '#00CC66' };
-  else if (pctSlope >  0.01) return { label: 'SLIGHT UPTREND',   slope: pctSlope, color: '#88FF88' };
-  else if (pctSlope > -0.01) return { label: 'SIDEWAYS',         slope: pctSlope, color: '#FFB800' };
-  else if (pctSlope > -0.05) return { label: 'SLIGHT DOWNTREND', slope: pctSlope, color: '#FF8866' };
-  else if (pctSlope > -0.15) return { label: 'DOWNTREND',        slope: pctSlope, color: '#FF4444' };
-  else                       return { label: 'STRONG DOWNTREND', slope: pctSlope, color: '#FF0000' };
+  return {
+    label: result.label,
+    slope: result.slope,
+    color: colors[result.label] || '#888888'
+  };
 }
 
 function getExpiryLabel(symbol) {
@@ -295,15 +291,7 @@ function getExpiryLabel(symbol) {
 }
 
 function calculateRealTrend(candles) {
-  const trend = getTFTrend(candles);
-  let direction = 'SIDEWAYS';
-  if (trend.slope > 0.01) direction = 'UP';
-  else if (trend.slope < -0.01) direction = 'DOWN';
-  return {
-    ...trend,
-    direction,
-    score: Math.round(trend.slope * 100)
-  };
+  return coreCalculateRealTrend(candles);
 }
 
 function calculateMACD(candles) {
@@ -329,6 +317,10 @@ function computeUnifiedSignal(
   const trend15m = calculateRealTrend(candles15m);
   const trend5m  = calculateRealTrend(candles5m);
   const trend1h  = calculateRealTrend(candles1h);
+
+  const direction =
+    trend15m.direction === 'UP'   ? 'CE' :
+    trend15m.direction === 'DOWN' ? 'PE' : 'AVOID';
   
   // ── STEP 2: confidence modifiers ─────────────────────
   let confidence = 50;
@@ -362,51 +354,55 @@ function computeUnifiedSignal(
     else if (rsi < 30) { confidence -= 10; blockers.push(`RSI ${rsi.toFixed(0)} oversold`); }
   }
   
-  // 5m alignment:
-  if (trend5m.direction === trend15m.direction) {
-    confidence += 8; boosters.push(`5m ${trend5m.label} aligns`);
-  } else if (trend5m.direction !== 'SIDEWAYS') {
-    confidence -= 5; blockers.push(`5m conflict`);
+  // 5m confirmation:
+  let confirmed = false;
+  if (direction === 'CE') {
+    confirmed = (trend5m.direction === 'UP');
+  } else if (direction === 'PE') {
+    confirmed = (trend5m.direction === 'DOWN');
   }
-  
+
+  if (direction !== 'AVOID') {
+    if (confirmed) {
+      confidence += 10; boosters.push(`5m slope confirms bias`);
+    } else {
+      confidence -= 15; blockers.push(`Lacks 5m confirmation (5m slope is ${trend5m.label})`);
+    }
+  }
+
   // 1h alignment:
   if (trend1h.direction === trend15m.direction) {
     confidence += 8; boosters.push(`1h ${trend1h.label} aligns`);
   } else if (trend1h.direction !== 'SIDEWAYS') {
     confidence -= 5; blockers.push(`Trading against 1h`);
   }
-  
+
   // News sentiment:
   if (newsScore > 4)       { confidence += 8;  boosters.push(`News bullish +${newsScore}`); }
   else if (newsScore > 1)  { confidence += 4;  }
   else if (newsScore < -4) { confidence -= 8;  blockers.push(`News bearish ${newsScore}`); }
   else if (newsScore < -1) { confidence -= 4;  }
-  
+
   const finalConf = Math.min(Math.max(confidence, 5), 95);
-  
-  // ── STEP 3: DIRECTION — always from 15m trend ─────────
-  const direction =
-    trend15m.direction === 'UP'   ? 'CE' :
-    trend15m.direction === 'DOWN' ? 'PE' : 'AVOID';
-  
+
   const conviction =
     finalConf >= 70 ? 'HIGH' :
     finalConf >= 50 ? 'MEDIUM' : 'LOW';
-  
+
   // ── STEP 4: TRADE PARAMETERS ──────────────────────────
   const isCE       = direction === 'CE';
   const lotSize    = instrument === 'BANKNIFTY' ? 15 : instrument === 'SENSEX' ? 10 : 50;
   const strikeGap  = spot > 40000 ? 100 : 50;
   const ivOffset   = iv > 0.18 ? 2 : iv > 0.14 ? 1 : 0;
-  
+
   const strike = direction === 'AVOID' ? 0 :
     isCE ? Math.ceil(spot/strikeGap)*strikeGap  + ivOffset*strikeGap
          : Math.floor(spot/strikeGap)*strikeGap - ivOffset*strikeGap;
-  
+
   const atrEst     = spot * 0.006;
   const slLevel    = isCE ? spot - atrEst*1.2 : spot + atrEst*1.2;
   const t1Level    = isCE ? spot + atrEst*1.5 : spot - atrEst*1.5;
-  
+
   const timeVal    = spot * iv * Math.sqrt(dte/252);
   const moneyness  = strike > 0 ? Math.abs(strike-spot)/spot : 0;
   const intrinsic  = strike > 0 ? Math.max(0, isCE?spot-strike:strike-spot) : 0;
@@ -417,7 +413,7 @@ function computeUnifiedSignal(
   const riskLot    = (estPrem - slPrem) * lotSize;
   const rewardLot  = (t1Prem  - estPrem) * lotSize;
   const rr         = riskLot > 0 ? (rewardLot/riskLot).toFixed(1)+':1' : '—';
-  
+
   // ── STEP 5: DISPLAY LABELS ────────────────────────────
   const macdLabel =
     macd.histogram > 3  && macd.rising  ? 'STRONG BULLISH ↑' :
@@ -426,26 +422,26 @@ function computeUnifiedSignal(
     macd.histogram > 0  && macd.falling ? 'WEAKENING ↓' :
     macd.histogram < -3 && macd.falling ? 'STRONG BEARISH ↓' :
     macd.histogram < 0  && macd.falling ? 'BEARISH ↓' : 'FLAT';
-  
+
   const macdColor =
     macd.rising  ? '#00FF88' :
     macd.falling ? '#FF4444' : '#888';
-  
+
   const bannerText =
     direction === 'CE' ?
-      finalConf >= 65
+      confirmed
         ? `✅ CONFIRMED BULLISH — BUY CE (Score: +${trend15m.score} | Confidence: ${finalConf}%)`
-        : `✅ BULLISH BIAS — BUY CE reduced size (Confidence: ${finalConf}%)`
+        : `✅ BULLISH BIAS (UNCONFIRMED) — BUY CE reduced size (Confidence: ${finalConf}%)`
     : direction === 'PE' ?
-      finalConf >= 65
+      confirmed
         ? `🔴 CONFIRMED BEARISH — BUY PE (Score: -${Math.abs(trend15m.score)} | Confidence: ${finalConf}%)`
-        : `🔴 BEARISH BIAS — BUY PE reduced size (Confidence: ${finalConf}%)`
+        : `🔴 BEARISH BIAS (UNCONFIRMED) — BUY PE reduced size (Confidence: ${finalConf}%)`
     : `⚠ SIDEWAYS — No directional edge. Wait for 15m to break.`;
-  
+
   const bannerColor =
     direction === 'CE' ? '#00FF88' :
     direction === 'PE' ? '#FF4444' : '#FFB800';
-  
+
   const expiryMap = {
     'NIFTY':2,'BANKNIFTY':3,'FINNIFTY':2,'SENSEX':5,
   };
@@ -456,10 +452,11 @@ function computeUnifiedSignal(
   let daysUntil = (expDay - today + 7) % 7 || 7;
   exp.setDate(exp.getDate() + daysUntil);
   const expLabel = `${dayName[exp.getDay()]} ${exp.getDate()} ${exp.toLocaleString('en-IN',{month:'short'})}`;
-  
+
   return {
     direction,
     conviction,
+    confirmed,
     confidence:    finalConf,
     label:         direction === 'CE' ? `BUY CE ${finalConf}% conviction`
                  : direction === 'PE' ? `BUY PE ${finalConf}% conviction`
@@ -554,7 +551,7 @@ function calculateIndicators(candles) {
   };
 }
 
-export default function InstitutionalPatternEnginePanel({ activeSymbol = 'NIFTY', spotPrice = null, iv = null, dte = null, newsScore = 0 }) {
+export default function InstitutionalPatternEnginePanel({ activeSymbol = 'NIFTY', spotPrice = null, iv = null, dte = null, newsScore = 0, isHolidayOrWeekend = false }) {
   const [symbol, setSymbol] = useState(activeSymbol);
   const [data5m,  setData5m]  = useState(null);
   const [data15m, setData15m] = useState(null);
@@ -656,6 +653,10 @@ export default function InstitutionalPatternEnginePanel({ activeSymbol = 'NIFTY'
   }
 
   useEffect(() => {
+    if (isHolidayOrWeekend) {
+      setLoading(false);
+      return;
+    }
     loadAll();
     
     let active = true;
@@ -677,7 +678,7 @@ export default function InstitutionalPatternEnginePanel({ activeSymbol = 'NIFTY'
       active = false;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [symbol, spotPrice, iv, dte, newsScore]);
+  }, [symbol, spotPrice, iv, dte, newsScore, isHolidayOrWeekend]);
 
   const handleLogInternalTrade = () => {
     if (!signal || signal.action === 'AVOID') return;
@@ -810,6 +811,47 @@ export default function InstitutionalPatternEnginePanel({ activeSymbol = 'NIFTY'
       </div>
     );
   }, [data5m, data15m, data1h, loading]);
+
+  if (isHolidayOrWeekend) {
+    return (
+      <div className="pattern-engine" style={{
+        background:'#0A0C10',
+        color:'#E0E0E0',
+        fontFamily:"'JetBrains Mono', monospace",
+        padding:'16px',
+        borderRadius: 10,
+        border: '1px solid rgba(255,255,255,0.06)',
+        marginTop: 20
+      }}>
+        {/* Header */}
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'12px' }}>
+          <div>
+            <span style={{ color:'#FFFFFF', fontSize:'14px', fontWeight:'bold' }}>
+              ⚡ INSTITUTIONAL PATTERN & SIGNAL ENGINE
+            </span>
+            <div style={{ color:'#666', fontSize:'11px', marginTop:'2px' }}>
+              Active: {symbol} · Locked (Market Closed)
+            </div>
+          </div>
+        </div>
+
+        {/* Locked state representation */}
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.01)',
+          border: '1px dashed rgba(255, 255, 255, 0.08)',
+          borderRadius: 8,
+          padding: '40px 20px',
+          textAlign: 'center',
+          color: '#64748b',
+          marginTop: '16px'
+        }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
+          <strong style={{ display: 'block', color: '#cbd5e1', fontSize: 14, marginBottom: 6 }}>Signal Engine Locked</strong>
+          <span style={{ fontSize: 11 }}>Pattern scans and option entry signals are disabled during market holidays and weekends.</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pattern-engine" style={{ background:'#0A0C10', color:'#E0E0E0',

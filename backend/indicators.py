@@ -159,6 +159,89 @@ def calculate_supertrend(df: pd.DataFrame, period: int = 7, multiplier: float = 
     return supertrend, direction
 
 
+def calculate_cmf(df: pd.DataFrame, period: int = 20) -> pd.Series:
+    high = df['High'].astype(float)
+    low = df['Low'].astype(float)
+    close = df['Close'].astype(float)
+    vol = df['Volume'].astype(float)
+    
+    range_val = high - low
+    range_val = range_val.replace(0, 1e-10)
+    mf_multiplier = ((close - low) - (high - close)) / range_val
+    mf_volume = mf_multiplier * vol
+    
+    cmf = mf_volume.rolling(window=period, min_periods=1).sum() / vol.rolling(window=period, min_periods=1).sum().replace(0, 1e-10)
+    return cmf.fillna(0.0)
+
+
+def calculate_obv(df: pd.DataFrame) -> pd.Series:
+    close = df['Close'].astype(float)
+    vol = df['Volume'].astype(float)
+    
+    obv = np.zeros(len(df))
+    if len(df) > 0:
+        obv[0] = vol.iloc[0]
+        close_vals = close.values
+        vol_vals = vol.values
+        for i in range(1, len(df)):
+            if close_vals[i] > close_vals[i-1]:
+                obv[i] = obv[i-1] + vol_vals[i]
+            elif close_vals[i] < close_vals[i-1]:
+                obv[i] = obv[i-1] - vol_vals[i]
+            else:
+                obv[i] = obv[i-1]
+    return pd.Series(obv, index=df.index)
+
+
+def calculate_psar(df: pd.DataFrame, step: float = 0.02, max_step: float = 0.2) -> pd.Series:
+    high = df['High'].astype(float).values
+    low = df['Low'].astype(float).values
+    close = df['Close'].astype(float).values
+    sar = np.zeros(len(df))
+    
+    if len(df) < 3:
+        return pd.Series(close, index=df.index)
+        
+    is_long = close[1] > close[0]
+    ep = high[1] if is_long else low[1]
+    af = step
+    sar[0] = low[0]
+    sar[1] = low[0] if is_long else high[0]
+    
+    for i in range(2, len(df)):
+        prev_sar = sar[i-1]
+        current_sar = prev_sar + af * (ep - prev_sar)
+        
+        if is_long:
+            if low[i] < current_sar:
+                is_long = False
+                current_sar = max(high[i], ep)
+                sar[i] = current_sar
+                ep = low[i]
+                af = step
+            else:
+                if high[i] > ep:
+                    ep = high[i]
+                    af = min(af + step, max_step)
+                lowest = min(low[i-1], low[i-2])
+                sar[i] = min(current_sar, lowest)
+        else:
+            if high[i] > current_sar:
+                is_long = True
+                current_sar = min(low[i], ep)
+                sar[i] = current_sar
+                ep = high[i]
+                af = step
+            else:
+                if low[i] < ep:
+                    ep = low[i]
+                    af = min(af + step, max_step)
+                highest = max(high[i-1], high[i-2])
+                sar[i] = max(current_sar, highest)
+                
+    return pd.Series(sar, index=df.index)
+
+
 def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
     Appends technical indicators to the input DataFrame:
@@ -169,6 +252,10 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     - SMA_50 (50 DMA)
     - SMA_200 (200 DMA)
     - Supertrend
+    - CMF (Chaikin Money Flow)
+    - OBV (On Balance Volume)
+    - PSAR (Parabolic SAR)
+    - Fib_236, Fib_382, Fib_500, Fib_618, Fib_786 (Fibonacci levels)
 
     NOTE: For index instruments (Nifty/BankNifty) volume is often 0 so VWAP
     computed here will be unreliable.  The `/api/market-data` and `/api/chat`
@@ -244,5 +331,21 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     except Exception as e:
         df['Supertrend'] = df['Close']
         df['Supertrend_Dir'] = 1
+
+    # 6. Advanced indicators: CMF, OBV, PSAR
+    df['CMF'] = calculate_cmf(df)
+    df['OBV'] = calculate_obv(df)
+    df['PSAR'] = calculate_psar(df)
+
+    # 7. Fibonacci levels (rolling lookback of 50 candles)
+    rolling_high = df['High'].rolling(window=min(50, len(df)), min_periods=1).max()
+    rolling_low = df['Low'].rolling(window=min(50, len(df)), min_periods=1).min()
+    diff = rolling_high - rolling_low
+    
+    df['Fib_236'] = rolling_high - diff * 0.236
+    df['Fib_382'] = rolling_high - diff * 0.382
+    df['Fib_500'] = rolling_high - diff * 0.500
+    df['Fib_618'] = rolling_high - diff * 0.618
+    df['Fib_786'] = rolling_high - diff * 0.786
 
     return df

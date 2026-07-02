@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { calculateRealTrend } from './patternEngine';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -90,6 +91,35 @@ export function isISTDateToday(timestampSec) {
     istDate.getMonth() === today.getMonth() &&
     istDate.getDate() === today.getDate()
   );
+}
+
+// ─── Opening Range Helpers ────────────────────────────────────────────────────
+
+/**
+ * Extracts the Opening Range Low — the low of the first 15-minute candle of
+ * today's session (the 9:15 AM IST candle). This is used as the ORB trigger
+ * level: if price falls below this, the market has broken its opening range.
+ *
+ * @param {Array} candles15m - Array of 15m candle objects with { time, open, high, low, close }
+ *                             where `time` is a Unix timestamp in seconds.
+ * @returns {number} The low of the 9:15 candle, or 0 if not yet available.
+ */
+export function computeORBLow(candles15m) {
+  if (!candles15m || candles15m.length === 0) return 0;
+
+  // Filter to today's candles only
+  const todayCandles = candles15m.filter(c => isISTDateToday(c.time));
+  if (todayCandles.length === 0) return 0;
+
+  // Sort ascending by time — first candle is the 9:15 opening candle
+  const sorted = [...todayCandles].sort((a, b) => a.time - b.time);
+  const openingCandle = sorted[0];
+
+  // Validate: the opening candle should start at 9:15 IST (555 minutes)
+  const startMinutes = getISTMinutesFromTimestamp(openingCandle.time);
+  if (startMinutes < 555 || startMinutes > 560) return 0; // guard against pre-market data
+
+  return openingCandle.low > 0 ? openingCandle.low : 0;
 }
 
 // ─── Pattern Detection ────────────────────────────────────────────────────────
@@ -291,10 +321,22 @@ export async function buildStrategyTimeline(
   candles15m       = [],
   optionData       = null,
   spotPrice        = 0,
-  newsScore        = 0
+  newsScore        = 0,
+  activeBias       = null
 ) {
   const nowMinutes = getISTMinutes();
   const marketClose = 15 * 60 + 30; // 3:30 IST
+
+  const getConvictionPct = (absConv) => {
+    if (absConv === 0) return '45%';
+    if (absConv === 1) return '55%';
+    if (absConv === 2) return '65%';
+    if (absConv === 3) return '75%';
+    if (absConv === 4) return '85%';
+    if (absConv === 5) return '90%';
+    if (absConv === 6) return '95%';
+    return '98%';
+  };
 
   // ── Pre-market bias — ONLY used for conviction scoring, never direction ────
   let globalBiasScore = 0;
@@ -325,22 +367,14 @@ export async function buildStrategyTimeline(
 
   // ── Helper: compute 15m trend direction from last ≤10 candles ────────────
   function calc15mTrend(candlesArr) {
-    if (!candlesArr || candlesArr.length < 3) return 'SIDEWAYS';
-    const slice = candlesArr.slice(-10);
-    const n = slice.length;
-    const firstClose = slice[0].close || 1;
-    let sX = 0, sY = 0, sXY = 0, sXX = 0;
-    for (let i = 0; i < n; i++) {
-      const x = i;
-      const y = slice[i].close / firstClose;
-      sX += x; sY += y; sXY += x * y; sXX += x * x;
-    }
-    const denom = n * sXX - sX * sX;
-    const slope = denom !== 0 ? (n * sXY - sX * sY) / denom : 0;
-    // Same thresholds as patternEngine.detectTrend
-    if (slope > 0.0003)       return 'UP';
-    if (slope < -0.0003)      return 'DOWN';
-    return 'SIDEWAYS';
+    if (!candlesArr || candlesArr.length < 5) return 'SIDEWAYS';
+    return calculateRealTrend(candlesArr).direction;
+  }
+
+  // ── Helper: compute 5m trend direction from last ≤10 candles ─────────────
+  function calc5mTrend(candlesArr) {
+    if (!candlesArr || candlesArr.length < 5) return 'SIDEWAYS';
+    return calculateRealTrend(candlesArr).direction;
   }
 
   // ── Build each window ────────────────────────────────────────────────────
@@ -393,6 +427,7 @@ export async function buildStrategyTimeline(
     // UP → CE, DOWN → PE, SIDEWAYS → AVOID.
     // MACD / pattern bias can NEVER override this — they only affect conviction.
     const trend15mDirection = calc15mTrend(filtered15m);
+    const trend5mDirection  = calc5mTrend(filtered5m);
 
     // ── SECONDARY: pattern bias — conviction modifier only ────────────────────
     const winPatterns5  = detectPattern(filtered5m,  winVwap15);
@@ -410,20 +445,12 @@ export async function buildStrategyTimeline(
     // Opening range exception
     const isOpeningRange = idx <= 1;
 
-    let recommendation, conviction, entry, strike;
+    let recommendation, strike, entry;
 
     // RULE 1: Extreme VIX with no trend → AVOID only
     if (indiaVix > 22 && trend15mDirection === 'SIDEWAYS') {
       recommendation = 'AVOID';
-      conviction = 'LOW';
       entry = '—';
-      strike = '—';
-    }
-    // RULE 2: Opening range + sideways → AVOID
-    else if (isOpeningRange && trend15mDirection === 'SIDEWAYS') {
-      recommendation = 'AVOID';
-      conviction = 'LOW';
-      entry = 'Wait for ORB';
       strike = '—';
     }
     // ══════════════════════════════════════════════════════════════════════════
@@ -431,10 +458,6 @@ export async function buildStrategyTimeline(
     // ══════════════════════════════════════════════════════════════════════════
     else if (trend15mDirection === 'UP') {
       recommendation = 'CE';
-      // Conviction is based on confirming signals; contrarian signals only reduce to LOW, never flip
-      if (absConviction >= 5 && patternBias >= 0) conviction = 'HIGH';
-      else if (absConviction >= 2)                conviction = 'MEDIUM';
-      else                                         conviction = 'LOW';
       strike = `${winAtm}CE`;
       entry = '80-110';
     }
@@ -443,23 +466,69 @@ export async function buildStrategyTimeline(
     // ══════════════════════════════════════════════════════════════════════════
     else if (trend15mDirection === 'DOWN') {
       recommendation = 'PE';
-      if (absConviction >= 5 && patternBias <= 0) conviction = 'HIGH';
-      else if (absConviction >= 2)                conviction = 'MEDIUM';
-      else                                         conviction = 'LOW';
       strike = `${winAtm}PE`;
       entry = '80-110';
     }
-    // RULE 5: True SIDEWAYS market → AVOID
+    // ══════════════════════════════════════════════════════════════════════════
+    // RULE 5: SIDEWAYS with Bias fallback (Opening Range only)
+    // ══════════════════════════════════════════════════════════════════════════
+    else if (isOpeningRange && (patternBias + globalBiasScore) > 0) {
+      recommendation = 'CE';
+      strike = `${winAtm}CE`;
+      entry = '80-110';
+    }
+    else if (isOpeningRange && (patternBias + globalBiasScore) < 0) {
+      recommendation = 'PE';
+      strike = `${winAtm}PE`;
+      entry = '80-110';
+    }
+    // RULE 6: True SIDEWAYS market with no bias → AVOID
     else {
       recommendation = 'AVOID';
-      conviction = 'LOW';
-      entry = 'Neutral';
+      entry = isOpeningRange ? 'Wait for ORB' : 'Neutral';
       strike = '—';
     }
 
+    // ── Conflict Resolution Rule (FIX 3.1) ──────────────────────────────────
+    // The original code initialised isConflict = false and NEVER set it true,
+    // making the guard dead code. We now check: if the live regime engine
+    // (activeBias from usePMIStream) contradicts the 15m candle trend
+    // direction, downgrade to AVOID to protect capital.
+    // Only apply after the opening range (idx > 1) — before that the 15m
+    // trend is still forming and a mismatch is expected noise.
+    let isConflict = false;
+    if (
+      !isOpeningRange &&
+      activeBias && activeBias !== 'NEUTRAL' &&
+      recommendation !== 'AVOID'
+    ) {
+      const trendSignal = trend15mDirection === 'UP' ? 'CE' : trend15mDirection === 'DOWN' ? 'PE' : null;
+      if (trendSignal && trendSignal !== activeBias) {
+        isConflict    = true;
+        recommendation = 'AVOID';
+        strike        = '—';
+        entry         = 'Signal Conflict';
+      }
+    }
+
+    // Confirmation logic
+    let confirmed = false;
+    if (recommendation === 'CE') {
+      confirmed = (trend5mDirection === 'UP');
+    } else if (recommendation === 'PE') {
+      confirmed = (trend5mDirection === 'DOWN');
+    }
+
+    // Conviction adjustment: discount conviction if not confirmed
+    let adjustedConviction = absConviction;
+    if (recommendation !== 'AVOID' && !confirmed) {
+      adjustedConviction = Math.max(0, absConviction - 2); // reduce by 2 levels
+    }
+    const conviction = recommendation === 'AVOID' ? '0%' : getConvictionPct(adjustedConviction);
+
     // Calculate entry/sl/target values
     const entryMid = recommendation === 'CE' || recommendation === 'PE'
-      ? (conviction === 'HIGH' ? 95 : conviction === 'MEDIUM' ? 75 : 60)
+      ? (absConviction >= 5 ? 95 : absConviction >= 2 ? 75 : 60)
       : 0;
     const slVal  = Math.round(entryMid * 0.68);
     const t1Val  = Math.round(entryMid * 1.38);
@@ -468,7 +537,23 @@ export async function buildStrategyTimeline(
     const maxRisk = entryMid > 0 ? `₹${(entryMid - slVal) * 25}` : '—';
 
     const supportingFactors = [];
+    if (isConflict) {
+      supportingFactors.push(
+        `AVOID — Conflict: Live regime is ${activeBias} but 15m candle trend is ` +
+        `${trend15mDirection === 'UP' ? 'UPTREND (CE)' : 'DOWNTREND (PE)'}. Stand down until aligned.`
+      );
+    }
     if (trend15mDirection !== 'SIDEWAYS') supportingFactors.push(`15m trend: ${trend15mDirection === 'UP' ? '↑ UPTREND → CE' : '↓ DOWNTREND → PE'}`);
+    
+    // Add 5m confirmation factor
+    if (recommendation !== 'AVOID') {
+      if (confirmed) {
+        supportingFactors.push(`5m Confirmation: YES (slope aligned)`);
+      } else {
+        supportingFactors.push(`5m Confirmation: NO (slope is ${trend5mDirection})`);
+      }
+    }
+
     if (giftNiftyPremium > 20)  supportingFactors.push(`GIFT Nifty +${giftNiftyPremium.toFixed(0)} pts premium`);
     if (giftNiftyPremium < -20) supportingFactors.push(`GIFT Nifty ${giftNiftyPremium.toFixed(0)} pts discount`);
     if (fiiNetCrore > 500)      supportingFactors.push(`FII net buyers ₹${(fiiNetCrore/100).toFixed(0)}Cr`);
@@ -484,7 +569,7 @@ export async function buildStrategyTimeline(
     if (supportingFactors.length === 0) supportingFactors.push('Mixed signals — risk management priority');
 
     // veto conditions
-    const vetoed = indiaVix > 25 || (trend15mDirection === 'SIDEWAYS' && isOpeningRange);
+    const vetoed = indiaVix > 25 || (trend15mDirection === 'SIDEWAYS' && isOpeningRange && (patternBias + globalBiasScore) === 0);
     const vetoReason = indiaVix > 25
       ? `India VIX at ${indiaVix.toFixed(1)} — extreme volatility, options pricing unsound`
       : 'Opening range without directional conviction. Wait for ORB breakout.';
@@ -505,14 +590,17 @@ export async function buildStrategyTimeline(
       t2Val,
       rr:     rrVal,
       maxRisk,
-      score:  trend15mDirection === 'UP' ? absConviction : trend15mDirection === 'DOWN' ? -absConviction : 0,
+      score:  recommendation === 'CE' ? absConviction : recommendation === 'PE' ? -absConviction : 0,
       why:    supportingFactors[0] || 'Mixed market conditions',
       supportingFactors,
       isPast,
       isCurrent,
       isFuture,
       vetoed,
-      vetoReason
+      vetoReason,
+      confirmed,
+      isConflict,         // FIX 3.1: expose conflict flag to UI consumers
+      computedAt: Date.now(), // FIX 6.1: timestamp so the slot can be fingerprinted
     };
   });
 }

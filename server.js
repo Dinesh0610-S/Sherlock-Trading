@@ -28,7 +28,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import schedule from 'node-schedule';
 import { NSE, BSE } from 'nse-bse-api';
-import { scanNiftyPatterns, buildTrendContext } from './src/utils/patternEngine.js';
+import { scanNiftyPatterns, buildTrendContext, calculateRealTrend } from './src/utils/patternEngine.js';
+import { computeSMCConfluence } from './src/utils/smcEngine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -274,6 +275,140 @@ async function fetchYFQuote(symbol) {
   }
 }
 
+async function fetchYFSectorQuote(name, yfSym) {
+  try {
+    const url = `${YF_BASE}/v8/finance/chart/${encodeURIComponent(yfSym)}?interval=1m&range=1d`;
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': NSE_HEADERS['User-Agent'] },
+      signal: AbortSignal.timeout(3000)
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const result = data?.chart?.result?.[0];
+    if (!result) throw new Error('No YF data');
+    const meta = result.meta;
+    const lastPrice = meta.regularMarketPrice ?? 0;
+    const prevClose = meta.previousClose ?? meta.chartPreviousClose ?? 0;
+    const change = lastPrice - prevClose;
+    const changePct = prevClose > 0 ? (change / prevClose) * 100 : 0;
+    return {
+      sector: name,
+      symbol: yfSym,
+      price: Math.round(lastPrice * 100) / 100,
+      change: Math.round(change * 100) / 100,
+      change_pct: Math.round(changePct * 100) / 100,
+    };
+  } catch (err) {
+    console.warn(`[YF-Sector] Quote fetch failed for ${name} (${yfSym}): ${err.message}`);
+    return null;
+  }
+}
+
+function getLastTradingDates(count = 5) {
+  const dates = [];
+  let d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const hour = d.getHours();
+  if (hour < 18 || (hour === 18 && d.getMinutes() < 30)) {
+    d.setDate(d.getDate() - 1);
+  }
+  
+  while (dates.length < count) {
+    const day = d.getDay();
+    if (day !== 0 && day !== 6) {
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yyyy = d.getFullYear();
+      dates.push(`${dd}${mm}${yyyy}`);
+    }
+    d.setDate(d.getDate() - 1);
+  }
+  return dates;
+}
+
+async function fetchFiiDerivativesData() {
+  const dates = getLastTradingDates(5);
+  for (const dateStr of dates) {
+    try {
+      const urlDirect = `https://archives.nseindia.com/content/nsccl/fao_participant_oi_${dateStr}.csv`;
+      const resp = await fetch(urlDirect, {
+        headers: { 'User-Agent': NSE_HEADERS['User-Agent'] },
+        signal: AbortSignal.timeout(3000)
+      });
+      if (resp.status !== 200) continue;
+      
+      const csvText = await resp.text();
+      const lines = csvText.split('\n');
+      
+      let fiiRow = null;
+      for (const line of lines) {
+        const parts = line.split(',').map(p => p.trim());
+        if (parts[0] === 'FII') {
+          fiiRow = parts;
+          break;
+        }
+      }
+      
+      if (fiiRow) {
+        const idxFutLong = parseInt(fiiRow[1]) || 0;
+        const idxFutShort = parseInt(fiiRow[2]) || 0;
+        const stockFutLong = parseInt(fiiRow[3]) || 0;
+        const stockFutShort = parseInt(fiiRow[4]) || 0;
+        const idxOptCallLong = parseInt(fiiRow[5]) || 0;
+        const idxOptPutLong = parseInt(fiiRow[6]) || 0;
+        const idxOptCallShort = parseInt(fiiRow[7]) || 0;
+        const idxOptPutShort = parseInt(fiiRow[8]) || 0;
+        
+        const idxFutRatio = idxFutShort > 0 ? +(idxFutLong / idxFutShort).toFixed(2) : 1.0;
+        const stockFutNet = stockFutLong - stockFutShort;
+        const netCallOI = idxOptCallLong - idxOptCallShort;
+        const netPutOI = idxOptPutLong - idxOptPutShort;
+        
+        let bias = 'NEUTRAL';
+        if (idxFutRatio > 1.1 && stockFutNet > 0) bias = 'BULLISH';
+        else if (idxFutRatio < 0.9 && stockFutNet < 0) bias = 'BEARISH';
+        else if (idxFutRatio > 1.1) bias = 'MODERATELY_BULLISH';
+        else if (idxFutRatio < 0.9) bias = 'MODERATELY_BEARISH';
+        
+        return {
+          success: true,
+          date: dateStr,
+          idxFutLong,
+          idxFutShort,
+          idxFutRatio,
+          stockFutLong,
+          stockFutShort,
+          stockFutNet,
+          idxOptCallLong,
+          idxOptCallShort,
+          idxOptPutLong,
+          idxOptPutShort,
+          netCallOI,
+          netPutOI,
+          derivativesBias: bias
+        };
+      }
+    } catch (err) {
+      console.warn(`[Derivatives-FII] Failed for date ${dateStr}: ${err.message}`);
+    }
+  }
+  return null;
+}
+
+let fiiDerivCache = null;
+let fiiDerivCacheTs = 0;
+
+async function getCachedFiiDerivativesData() {
+  if (fiiDerivCache && (Date.now() - fiiDerivCacheTs) < 600_000) {
+    return fiiDerivCache;
+  }
+  const data = await fetchFiiDerivativesData();
+  if (data) {
+    fiiDerivCache = data;
+    fiiDerivCacheTs = Date.now();
+  }
+  return data || fiiDerivCache;
+}
+
 // ── NSE Quote Fetcher ────────────────────────────────────────────────────────
 const INDEX_SYMBOLS = new Set(['NIFTY','BANKNIFTY','FINNIFTY','MIDCPNIFTY','NIFTYNXT50']);
 
@@ -483,7 +618,8 @@ async function fetchNSEQuote(symbol) {
 // ── NSE All Indices ──────────────────────────────────────────────────────────
 const TRACKED_INDICES = [
   'NIFTY 50','NIFTY BANK','NIFTY FIN SERVICE',
-  'NIFTY MIDCAP SELECT','INDIA VIX','NIFTY NEXT 50'
+  'NIFTY MIDCAP SELECT','INDIA VIX','NIFTY NEXT 50',
+  'NIFTY IT', 'NIFTY METAL', 'NIFTY PHARMA', 'NIFTY AUTO', 'NIFTY FMCG', 'NIFTY REALTY', 'NIFTY ENERGY', 'NIFTY INFRA', 'NIFTY MEDIA'
 ];
 
 async function fetchAllIndices() {
@@ -506,6 +642,9 @@ async function fetchAllIndices() {
         high:          idx.high          ?? 0,
         low:           idx.low           ?? 0,
         previousClose: idx.previousClose ?? 0,
+        advances:      idx.advances !== undefined ? parseInt(idx.advances) : 0,
+        declines:      idx.declines !== undefined ? parseInt(idx.declines) : 0,
+        unchanged:     idx.unchanged !== undefined ? parseInt(idx.unchanged) : 0,
         source: 'nse',
       }));
   } catch (err) {
@@ -1114,6 +1253,42 @@ app.post('/api/chat', async (req, res) => {
     };
   });
 
+  // 1. Prioritize Python Flask backend chat proxy for dynamic intent routing and local/cloud Llama
+  try {
+    const ticker = nseSymbol ? (nseSymbol.endsWith('.NS') ? nseSymbol.toUpperCase() : `${nseSymbol.toUpperCase()}.NS`) : '^NSEI';
+    const historyList = messages.slice(0, -1).map(m => ({
+      sender: m.role === 'assistant' || m.role === 'model' ? 'holmes' : 'user',
+      text: m.content || ''
+    }));
+
+    console.log(`[API/CHAT] Attempting Python backend proxy for ticker ${ticker}...`);
+    const pyRes = await fetch('http://localhost:5000/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: lastMessage,
+        ticker: ticker,
+        history: historyList
+      })
+    });
+
+    if (pyRes.ok) {
+      const reader = pyRes.body;
+      for await (const chunk of reader) {
+        res.write(chunk);
+      }
+      res.end();
+      console.log('[API/CHAT] Python backend chat proxy stream completed successfully.');
+      return;
+    } else {
+      const errText = await pyRes.text();
+      console.warn(`[API/CHAT] Python backend chat returned error status ${pyRes.status}: ${errText}`);
+    }
+  } catch (pyErr) {
+    console.warn('[API/CHAT] Proxying request to Python backend failed, falling back to direct Gemini API...', pyErr.message);
+  }
+
+  // 2. Fallback to direct Gemini API attempts if Python server is offline/erroring
   const apiKey = process.env.GEMINI_API_KEY || "";
   const attempts = [
     { model: 'gemini-3.5-flash', useSearch: false },
@@ -1159,64 +1334,70 @@ app.post('/api/chat', async (req, res) => {
     }
   }
 
-  try {
-    if (!response) {
-      throw new Error(`All Gemini API attempts failed. Last error: ${errorMsg}`);
-    }
+  // 3. Process Gemini stream if successful
+  if (response) {
+    try {
+      res.write(`data: ${JSON.stringify({ delta: { text: "---SHERLOCK_GENERAL---\n" } })}\n\n`);
 
-    res.write(`data: ${JSON.stringify({ delta: { text: "---SHERLOCK_GENERAL---\n" } })}\n\n`);
+      const reader = response.body;
+      let buffer = '';
 
-    const reader = response.body;
-    let buffer = '';
+      for await (const chunk of reader) {
+        buffer += new TextDecoder().decode(chunk, { stream: true });
+        let lineEndIdx;
+        while ((lineEndIdx = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, lineEndIdx).trim();
+          buffer = buffer.slice(lineEndIdx + 1);
 
-    for await (const chunk of reader) {
-      buffer += new TextDecoder().decode(chunk, { stream: true });
-      let lineEndIdx;
-      while ((lineEndIdx = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, lineEndIdx).trim();
-        buffer = buffer.slice(lineEndIdx + 1);
-
-        if (line.startsWith('data: ')) {
-          const dataStr = line.slice(6).trim();
-          try {
-            const parsed = JSON.parse(dataStr);
-            const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            if (text) {
-              res.write(`data: ${JSON.stringify({ delta: { text: text } })}\n\n`);
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6).trim();
+            try {
+              const parsed = JSON.parse(dataStr);
+              const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              if (text) {
+                res.write(`data: ${JSON.stringify({ delta: { text: text } })}\n\n`);
+              }
+            } catch (e) {
+              // Ignore incomplete lines
             }
-          } catch (e) {
-            // Ignore incomplete lines
           }
         }
       }
+
+      res.write(`data: ${JSON.stringify({ delta: { text: "\n---END_GENERAL---" } })}\n\n`);
+      res.write("data: [DONE]\n\n");
+      res.end();
+      return;
+    } catch (geminiStreamErr) {
+      console.warn('[API/CHAT] Direct Gemini stream handling failed, falling back to simulation...', geminiStreamErr.message);
     }
+  }
 
-    res.write(`data: ${JSON.stringify({ delta: { text: "\n---END_GENERAL---" } })}\n\n`);
-    res.write("data: [DONE]\n\n");
-    res.end();
+  console.warn('[API/CHAT] Falling back to simulated response.');
 
-  } catch (err) {
-    console.warn('[API/CHAT] Gemini API call failed. Falling back to simulated response.', err.message);
-    
     // Helper function to parse metrics from system prompt
     const parseMetricsFromSystem = (sys) => {
       const getVal = (regex, def = '—') => {
         const match = sys.match(regex);
-        return match ? match[1].trim() : def;
+        if (!match) return def;
+        for (let i = 1; i < match.length; i++) {
+          if (match[i] !== undefined) return match[i].trim();
+        }
+        return def;
       };
 
-      const ltp = getVal(/Last Traded Price \(LTP\):\s*(?:₹)?([\d,.-]+)/, '23,405.60');
-      const change = getVal(/Daily Change:\s*([\d,.-]+)/, '-77.95');
-      const changePct = getVal(/Daily Change:[^(]*\(([\d,.-]+%)\)/, '-0.33%');
+      const ltp = getVal(/LTP:\s*(?:₹)?([\d,.-]+)|Last Traded Price \(LTP\):\s*(?:₹)?([\d,.-]+)/, '23,405.60');
+      const change = getVal(/Change:\s*([\d,.-]+%)|Daily Change:\s*([\d,.-]+)/, '-77.95');
+      const changePct = getVal(/Change:\s*([\d,.-]+%)|Daily Change:[^(]*\(([\d,.-]+%)\)/, '-0.33%');
       const vwap = getVal(/VWAP:\s*(?:₹)?([\d,.-]+)/, '23,483.55');
-      const rsi = getVal(/RSI \(14\):\s*([\d,.-]+)/, '57.2');
+      const rsi = getVal(/RSI\s*\(14\):\s*([\d,.-]+)|RSI:\s*([\d,.-]+)/, '57.2');
       const ema = getVal(/EMA Status:\s*([^\n]+)/, 'Bullish');
       const pcr = getVal(/PCR:\s*([\d,.-]+)/, '1.00');
-      const maxPain = getVal(/Max Pain Strike:\s*(?:₹)?([\d,.-]+)/, '23,500');
+      const maxPain = getVal(/Max Pain:\s*(?:₹)?([\d,.-]+)|Max Pain Strike:\s*(?:₹)?([\d,.-]+)/, '23,500');
       const vix = getVal(/India VIX:\s*([\d,.-]+)/, '13.5');
-      const fii = getVal(/FII Flow:\s*([^\n]+)/, 'Net -120 Cr');
+      const fii = getVal(/FII Today:\s*([^\n]+)|FII Flow:\s*([^\n]+)/, 'Net -120 Cr');
       
-      const longScore = getVal(/Deep Quality Score Gate \(LONG\):[\s\S]*?Total Score:\s*([\d]+)\/100/, '72');
+      const longScore = getVal(/CONFIDENCE SCORE:\s*([\d]+)\/100|Deep Quality Score Gate \(LONG\):[\s\S]*?Total Score:\s*([\d]+)\/100/, '72');
       const longGrade = getVal(/Deep Quality Score Gate \(LONG\):[\s\S]*?Grade:\s*([^\n\)]+)/, 'B');
       const longVerdict = getVal(/Deep Quality Score Gate \(LONG\):[\s\S]*?Verdict:\s*([^\n]+)/, 'reduce size to 50%');
 
@@ -1376,7 +1557,6 @@ Let me know if you want me to analyze a specific stock or suggest option strateg
     }
     res.write("data: [DONE]\n\n");
     res.end();
-  }
 });
 
 // Market status
@@ -2004,6 +2184,137 @@ function computeATR(candles, period = 14) {
   return atrs;
 }
 
+// Chaikin Money Flow (CMF) helper
+function computeCMF(candles, period = 20) {
+  const cmfs = new Array(candles.length).fill(0);
+  if (candles.length < period) return cmfs;
+  
+  for (let i = 0; i < candles.length; i++) {
+    if (i < period - 1) continue;
+    let mfvSum = 0;
+    let volSum = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      const c = candles[j];
+      const range = c.high - c.low || 0.001;
+      const multiplier = ((c.close - c.low) - (c.high - c.close)) / range;
+      const volume = c.volume || 0;
+      mfvSum += multiplier * volume;
+      volSum += volume;
+    }
+    cmfs[i] = volSum > 0 ? +(mfvSum / volSum).toFixed(4) : 0;
+  }
+  return cmfs;
+}
+
+// On Balance Volume (OBV) helper
+function computeOBV(candles) {
+  const obvs = new Array(candles.length).fill(0);
+  if (candles.length === 0) return obvs;
+  obvs[0] = candles[0].volume || 0;
+  for (let i = 1; i < candles.length; i++) {
+    const prevClose = candles[i - 1].close;
+    const currClose = candles[i].close;
+    const volume = candles[i].volume || 0;
+    if (currClose > prevClose) {
+      obvs[i] = obvs[i - 1] + volume;
+    } else if (currClose < prevClose) {
+      obvs[i] = obvs[i - 1] - volume;
+    } else {
+      obvs[i] = obvs[i - 1];
+    }
+  }
+  return obvs;
+}
+
+// Parabolic SAR (PSAR) helper
+function computeParabolicSAR(candles, step = 0.02, maxStep = 0.2) {
+  const sar = new Array(candles.length).fill(0);
+  if (candles.length < 3) return sar;
+
+  let isLong = candles[1].close > candles[0].close;
+  let ep = isLong ? candles[1].high : candles[1].low;
+  let af = step;
+  sar[0] = candles[0].low;
+  sar[1] = isLong ? candles[0].low : candles[0].high;
+
+  for (let i = 2; i < candles.length; i++) {
+    const prevSar = sar[i - 1];
+    const high = candles[i].high;
+    const low = candles[i].low;
+
+    let currentSar = prevSar + af * (ep - prevSar);
+
+    if (isLong) {
+      if (low < currentSar) {
+        isLong = false;
+        currentSar = Math.max(high, ep);
+        sar[i] = currentSar;
+        ep = low;
+        af = step;
+      } else {
+        if (high > ep) {
+          ep = high;
+          af = Math.min(af + step, maxStep);
+        }
+        const lowest = Math.min(candles[i - 1].low, candles[i - 2].low);
+        sar[i] = Math.min(currentSar, lowest);
+      }
+    } else {
+      if (high > currentSar) {
+        isLong = true;
+        currentSar = Math.min(low, ep);
+        sar[i] = currentSar;
+        ep = high;
+        af = step;
+      } else {
+        if (low < ep) {
+          ep = low;
+          af = Math.min(af + step, maxStep);
+        }
+        const highest = Math.max(candles[i - 1].high, candles[i - 2].high);
+        sar[i] = Math.max(currentSar, highest);
+      }
+    }
+  }
+  return sar;
+}
+
+// Fibonacci Retracements helper
+function computeFibonacciLevels(candles, lookback = 50) {
+  if (!candles || candles.length === 0) return {};
+  const slice = candles.slice(-lookback);
+  const highs = slice.map(c => c.high);
+  const lows = slice.map(c => c.low);
+  const max = Math.max(...highs);
+  const min = Math.min(...lows);
+  const diff = max - min;
+  
+  const lastClose = candles[candles.length - 1].close;
+  const isUptrend = lastClose > (max + min) / 2;
+  
+  if (isUptrend) {
+    return {
+      high: max,
+      low: min,
+      level236: +(max - diff * 0.236).toFixed(2),
+      level382: +(max - diff * 0.382).toFixed(2),
+      level500: +(max - diff * 0.500).toFixed(2),
+      level618: +(max - diff * 0.618).toFixed(2),
+      level786: +(max - diff * 0.786).toFixed(2),
+    };
+  } else {
+    return {
+      high: max,
+      low: min,
+      level236: +(min + diff * 0.236).toFixed(2),
+      level382: +(min + diff * 0.382).toFixed(2),
+      level500: +(min + diff * 0.500).toFixed(2),
+      level618: +(min + diff * 0.618).toFixed(2),
+      level786: +(min + diff * 0.786).toFixed(2),
+    };
+  }
+}
+
 // Calculate technical indicators from daily or historical data
 async function calculateTechnicals(symbol) {
   try {
@@ -2021,6 +2332,7 @@ async function calculateTechnicals(symbol) {
     const highs = quotes.high || [];
     const lows = quotes.low || [];
     const closes = quotes.close || [];
+    const volumes = quotes.volume || [];
 
     const validCloses = closes.filter(c => c !== null && c !== undefined && c > 0);
     if (validCloses.length === 0) {
@@ -2036,27 +2348,92 @@ async function calculateTechnicals(symbol) {
     closes.forEach((c, i) => {
       const h = highs[i];
       const l = lows[i];
+      const v = volumes[i] || 0;
       if (c && h && l) {
-        validCandles.push({ close: c, high: h, low: l });
+        validCandles.push({ close: c, high: h, low: l, volume: v });
       }
     });
+    
     const atr14List = computeATR(validCandles, 14);
+    const cmfList = computeCMF(validCandles, 20);
+    const obvList = computeOBV(validCandles);
+    const psarList = computeParabolicSAR(validCandles);
+    const fibLevels = computeFibonacciLevels(validCandles, 50);
 
     return {
       rsi14: rsi14List[rsi14List.length - 1] || 50.0,
       ema9: ema9List[ema9List.length - 1] || validCloses[validCloses.length - 1],
       ema21: ema21List[ema21List.length - 1] || validCloses[validCloses.length - 1],
       ema50: ema50List[ema50List.length - 1] || validCloses[validCloses.length - 1],
-      atr14: atr14List[atr14List.length - 1] || 0.0
+      atr14: atr14List[atr14List.length - 1] || 0.0,
+      cmf: cmfList[cmfList.length - 1] || 0.0,
+      obv: obvList[obvList.length - 1] || 0,
+      psar: psarList[psarList.length - 1] || validCloses[validCloses.length - 1],
+      fibonacci: fibLevels
     };
   } catch (err) {
-    console.error(`calculateTechnicals for ${symbol} failed:`, err.message);
+    console.warn(`calculateTechnicals for ${symbol} failed: ${err.message} - generating mock technicals`);
+    
+    const mockCandles = [];
+    const basePrices = {
+      'SENSEX': 74500,
+      'BSESN': 74500,
+      'BANKNIFTY': 55194.50,
+      'NSEBANK': 55194.50,
+      'NIFTY': 23242.10,
+      'NSEI': 23242.10,
+      'FINNIFTY': 25152.45,
+      'CNXFIN': 25152.45,
+      'RELIANCE': 1269.20,
+      'TCS': 2151.00,
+      'HDFCBANK': 738.35,
+      'ICICIBANK': 1275.00,
+      'INFY': 1180.30,
+      'SBIN': 1002.70,
+      'BHARTIARTL': 1799.00,
+      'KOTAKBANK': 381.70,
+      'ITC': 280.00,
+      'LT': 3900.60,
+      'AXISBANK': 1292.40,
+      'WIPRO': 181.67
+    };
+    const upperSym = symbol.toUpperCase().replace('.NS', '').replace('^', '');
+    let price = basePrices[upperSym] || 150.0;
+    
+    for (let i = 0; i < 100; i++) {
+      const open = price + Math.random() * 20 - 10;
+      const high = open + Math.random() * 15;
+      const low = open - Math.random() * 15;
+      const close = (high + low) / 2;
+      mockCandles.push({
+        close, high, low,
+        volume: Math.floor(Math.random() * 100000 + 50000)
+      });
+      price = close;
+    }
+    
+    const validCloses = mockCandles.map(c => c.close);
+    const ema9List = computeEMA(validCloses, 9);
+    const ema21List = computeEMA(validCloses, 21);
+    const ema50List = computeEMA(validCloses, 50);
+    const rsi14List = computeRSI(validCloses, 14);
+    
+    const atr14List = computeATR(mockCandles, 14);
+    const cmfList = computeCMF(mockCandles, 20);
+    const obvList = computeOBV(mockCandles);
+    const psarList = computeParabolicSAR(mockCandles);
+    const fibLevels = computeFibonacciLevels(mockCandles, 50);
+    
     return {
-      rsi14: 50.0,
-      ema9: 0.0,
-      ema21: 0.0,
-      ema50: 0.0,
-      atr14: 0.0
+      rsi14: rsi14List[rsi14List.length - 1] || 50.0,
+      ema9: ema9List[ema9List.length - 1] || validCloses[validCloses.length - 1],
+      ema21: ema21List[ema21List.length - 1] || validCloses[validCloses.length - 1],
+      ema50: ema50List[ema50List.length - 1] || validCloses[validCloses.length - 1],
+      atr14: atr14List[atr14List.length - 1] || 0.0,
+      cmf: cmfList[cmfList.length - 1] || 0.0,
+      obv: obvList[obvList.length - 1] || 0,
+      psar: psarList[psarList.length - 1] || validCloses[validCloses.length - 1],
+      fibonacci: fibLevels
     };
   }
 }
@@ -2094,6 +2471,10 @@ app.get('/api/indicators', async (req, res) => {
       ema21:        technicals.ema21,
       ema50:        technicals.ema50,
       atr14:        technicals.atr14,
+      cmf:          technicals.cmf,
+      obv:          technicals.obv,
+      psar:         technicals.psar,
+      fibonacci:    technicals.fibonacci
     };
 
     // Cache 30 seconds
@@ -2114,12 +2495,22 @@ app.get('/api/indicators', async (req, res) => {
 function computeVWAPLine(candles, symbol) {
   let cumTPV = 0;
   let cumVol = 0;
+  let prevDateStr = '';
   const line = [];
   const isIndex = symbol && getYahooSymbol(symbol).startsWith('^');
 
   candles.forEach(c => {
     let v = isIndex ? 1 : (c.volume || 0);
     if (typeof v !== 'number' || v <= 0) return;
+
+    // Reset daily (using IST timezone to align with Indian market days)
+    const dateStr = new Date(c.time * 1000).toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }).split(',')[0];
+    if (dateStr !== prevDateStr) {
+      cumTPV = 0;
+      cumVol = 0;
+      prevDateStr = dateStr;
+    }
+
     const tp = (c.high + c.low + c.close) / 3;
     cumTPV += tp * v;
     cumVol += v;
@@ -2509,6 +2900,25 @@ app.get('/api/candles', async (req, res) => {
     // Compute VWAP for each candle (intraday only)
     const vwapLine = computeVWAPLine(candles, symbol);
 
+    // Compute CMF, OBV, PSAR, RSI and Fibonacci levels
+    const cmfList = computeCMF(candles, 20);
+    const obvList = computeOBV(candles);
+    const psarList = computeParabolicSAR(candles);
+    const rsiList = computeRSI(candles.map(c => c.close), 14);
+    const fibLevels = computeFibonacciLevels(candles, 50);
+
+    // Attach these indicators to each candle object
+    candles.forEach((c, i) => {
+      c.ema9 = ema9[i] || null;
+      c.ema21 = ema21[i] || null;
+      c.ema50 = ema50[i] || null;
+      c.vwap = vwapLine.find(v => v.time === c.time)?.value || null;
+      c.cmf = cmfList[i] || 0.0;
+      c.obv = obvList[i] || 0;
+      c.psar = psarList[i] || c.close;
+      c.rsi = rsiList[i] || 50.0;
+    });
+
     const payload = {
       candles,
       overlays: {
@@ -2521,14 +2931,27 @@ app.get('/api/candles', async (req, res) => {
         ema50: candles.map((c, i) => ({
           time: c.time, value: ema50[i]
         })).filter(d => d.value),
-        vwap:  vwapLine
+        vwap:  vwapLine,
+        cmf:   candles.map((c, i) => ({
+          time: c.time, value: cmfList[i]
+        })),
+        obv:   candles.map((c, i) => ({
+          time: c.time, value: obvList[i]
+        })),
+        psar:  candles.map((c, i) => ({
+          time: c.time, value: psarList[i]
+        })),
+        rsi:   candles.map((c, i) => ({
+          time: c.time, value: rsiList[i]
+        }))
       },
       meta: {
         symbol,
         interval,
         totalCandles: candles.length,
         lastClose:    candles[candles.length - 1]?.close,
-        lastVolume:   candles[candles.length - 1]?.volume
+        lastVolume:   candles[candles.length - 1]?.volume,
+        fibonacci:    fibLevels
       }
     };
 
@@ -4205,23 +4628,28 @@ app.get('/api/premarket/scan', async (req, res) => {
   const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   const h = ist.getHours(), m = ist.getMinutes(), s = ist.getSeconds();
   const hm = h * 60 + m;
-  const isPreOpen = h === 9 && m < 15;
-  const isJustOpened = h === 9 && m >= 15 && m < 25;
-  const cacheTTL = isPreOpen ? 15_000 : isJustOpened ? 30_000 : 120_000;
 
-  // Return from cache if fresh enough
-  if (pmScanCache && (Date.now() - pmScanCacheTs) < cacheTTL) {
+  // Support query parameter overrides for testing
+  const mockPhase = req.query.mockPhase;
+  const isPreOpen = mockPhase ? ['ORDER_ENTRY', 'IEP_CALCULATION', 'BUFFER'].includes(mockPhase) : (h === 9 && m < 15);
+  const isJustOpened = mockPhase ? mockPhase === 'JUST_OPENED' : (h === 9 && m >= 15 && m < 25);
+  const cacheTTL = isPreOpen ? 5_000 : isJustOpened ? 30_000 : 120_000;
+
+  // Return from cache if fresh enough (skip if mockPhase is requested to allow quick testing)
+  if (!mockPhase && pmScanCache && (Date.now() - pmScanCacheTs) < cacheTTL) {
     return res.json({ ...pmScanCache, from_cache: true });
   }
 
   // Determine market phase
-  let phase = 'CLOSED';
-  if (hm < 9 * 60) phase = 'BEFORE_PREOPEN';
-  else if (hm < 9 * 60 + 8) phase = 'ORDER_ENTRY';
-  else if (hm < 9 * 60 + 12) phase = 'IEP_CALCULATION';
-  else if (hm < 9 * 60 + 15) phase = 'BUFFER';
-  else if (hm < 9 * 60 + 20) phase = 'JUST_OPENED';
-  else if (hm < 15 * 60 + 30) phase = 'MARKET_OPEN';
+  let phase = mockPhase || 'CLOSED';
+  if (!mockPhase) {
+    if (hm < 9 * 60) phase = 'BEFORE_PREOPEN';
+    else if (hm < 9 * 60 + 8) phase = 'ORDER_ENTRY';
+    else if (hm < 9 * 60 + 12) phase = 'IEP_CALCULATION';
+    else if (hm < 9 * 60 + 15) phase = 'BUFFER';
+    else if (hm < 9 * 60 + 20) phase = 'JUST_OPENED';
+    else if (hm < 15 * 60 + 30) phase = 'MARKET_OPEN';
+  }
 
   const ist_time = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
   const ist_date = ist.toISOString().slice(0, 10);
@@ -4353,9 +4781,36 @@ app.get('/api/premarket/scan', async (req, res) => {
     news.key_opportunity = 'Selling pressure dominant. Look for short entries on breakdown.';
   }
 
+  // Fetch Sector Pulse data concurrently
+  let sectorPulse = [];
+  try {
+    const sectorSymbols = {
+      'BANK': '^NSEBANK',
+      'IT': '^CNXIT',
+      'FMCG': '^CNXFMCG',
+      'PHARMA': '^CNXPHARMA',
+      'AUTO': '^CNXAUTO',
+      'METAL': '^CNXMETAL',
+      'ENERGY': '^CNXENERGY',
+      'INFRA': '^CNXINFRA',
+      'REALTY': '^CNXREALTY',
+      'FINANCE': '^CNXFIN'
+    };
+    const sectorPromises = Object.entries(sectorSymbols).map(([name, sym]) =>
+      fetchYFSectorQuote(name, sym)
+    );
+    const settled = await Promise.allSettled(sectorPromises);
+    sectorPulse = settled
+      .filter(r => r.status === 'fulfilled' && r.value !== null)
+      .map(r => r.value);
+  } catch (err) {
+    console.warn('[Premarket] Sector Pulse fetch failed:', err.message);
+  }
+
   // Construct scan object
   const scanResult = {
     phase,
+    sectorPulse,
     ist_time,
     ist_date,
     nifty_gap: niftyGap || {
@@ -4445,24 +4900,43 @@ function calculatePreMarketConfidence(d) {
   
   if (d.pcrChange > 0.15)  { pcrScore += 2; accelerators.push(`PCR rising +${d.pcrChange.toFixed(2)} — put writers protecting, bullish`); }
   if (d.pcrChange < -0.15) { pcrScore -= 2; blockers.push(`PCR falling ${d.pcrChange.toFixed(2)} — call buildup, bearish`); }
-  dims.push({ name: 'PCR Intelligence', score: Math.min(pcrScore, 12), max: 12,
+  dims.push({ name: 'PCR Intelligence', score: Math.min(Math.max(pcrScore, -12), 12), max: 12,
     note: `PCR ${d.pcr.toFixed(2)} (${d.pcrChange > 0 ? '↑' : '↓'})` });
 
   // ── DIMENSION 6: FII Smart Money (12 pts) ──────────
   let fiiScore = 0;
-  if      (d.fiiNetCrore > 2000)  { fiiScore = 12; accelerators.push(`FII +₹${d.fiiNetCrore.toLocaleString('en-IN')}Cr — heavy institutional buying`); }
-  else if (d.fiiNetCrore > 500)   { fiiScore = 8;  accelerators.push(`FII +₹${d.fiiNetCrore.toLocaleString('en-IN')}Cr — net buyers`); }
-  else if (d.fiiNetCrore > 0)     { fiiScore = 4;  }
-  else if (d.fiiNetCrore < -2000) { fiiScore = -12; blockers.push(`FII -₹${Math.abs(d.fiiNetCrore).toLocaleString('en-IN')}Cr — heavy selling`); }
-  else if (d.fiiNetCrore < -500)  { fiiScore = -8; blockers.push(`FII -₹${Math.abs(d.fiiNetCrore).toLocaleString('en-IN')}Cr — net sellers`); }
-  else                            { fiiScore = -3; }
+  const ratio = d.fiiIdxFutRatio ?? 1.0;
+  const stockNet = d.fiiStockFutNet ?? 0;
   
-  if (d.diiNetCrore > 1000 && d.fiiNetCrore < 0) {
-    fiiScore += 3;
-    accelerators.push(`DII +₹${d.diiNetCrore.toLocaleString('en-IN')}Cr buffering FII outflow`);
+  if (ratio > 1.3) {
+    fiiScore += 8;
+    accelerators.push(`FII Index Futures Long/Short ratio is highly bullish (${ratio})`);
+  } else if (ratio > 1.0) {
+    fiiScore += 5;
+    accelerators.push(`FII Index Futures Long/Short ratio is bullish (${ratio})`);
+  } else if (ratio < 0.7) {
+    fiiScore -= 8;
+    blockers.push(`FII Index Futures Long/Short ratio is highly bearish (${ratio})`);
+  } else if (ratio < 1.0) {
+    fiiScore -= 4;
+    blockers.push(`FII Index Futures Long/Short ratio is bearish (${ratio})`);
   }
-  dims.push({ name: 'FII / DII Flow', score: Math.min(Math.max(fiiScore, -12), 12), max: 12,
-    note: `FII ${d.fiiNetCrore > 0 ? '+' : ''}₹${d.fiiNetCrore}Cr` });
+
+  if (stockNet > 200000) {
+    fiiScore += 4;
+    accelerators.push(`FII net long stock futures (+${stockNet.toLocaleString('en-IN')} contracts)`);
+  } else if (stockNet > 0) {
+    fiiScore += 2;
+  } else if (stockNet < -200000) {
+    fiiScore -= 4;
+    blockers.push(`FII net short stock futures (-${Math.abs(stockNet).toLocaleString('en-IN')} contracts)`);
+  } else if (stockNet < 0) {
+    fiiScore -= 2;
+  }
+
+  fiiScore = Math.min(Math.max(fiiScore, -12), 12);
+  dims.push({ name: 'FII / DII Flow', score: fiiScore, max: 12,
+    note: `Deriv Bias: ${ratio > 1.1 ? '🟢' : ratio < 0.9 ? '🔴' : '🟡'} (Ratio: ${ratio})` });
 
   // ── DIMENSION 7: Technical Indicators (15 pts) ─────
   let techScore = 0;
@@ -4478,31 +4952,64 @@ function calculatePreMarketConfidence(d) {
   else if (d.rsi15m > 65) { techScore -= 4; blockers.push(`RSI ${d.rsi15m.toFixed(0)} overbought — late CE entry`); }
   else if (d.rsi15m > 55) { techScore -= 1; }
   
-  if      (d.trendSlope > 0.003)  { techScore += 4; }
-  else if (d.trendSlope > 0.001)  { techScore += 2; }
-  else if (d.trendSlope < -0.003) { techScore -= 4; }
-  else if (d.trendSlope < -0.001) { techScore -= 2; }
+  const slope15m = d.trendSlope15m ?? d.trendSlope ?? 0;
+  const slope5m  = d.trendSlope5m ?? 0;
+
+  if      (slope15m > 0.003)  { techScore += 4; }
+  else if (slope15m > 0.001)  { techScore += 2; }
+  else if (slope15m < -0.003) { techScore -= 4; }
+  else if (slope15m < -0.001) { techScore -= 2; }
   dims.push({ name: 'Technical Indicators', score: Math.min(Math.max(techScore, -15), 15), max: 15,
     note: `MACD ${d.macdHist.toFixed(2)} | RSI ${d.rsi15m.toFixed(0)}` });
 
   // ── DIMENSION 8: Upgraded Pattern Engine Signal (15 pts max) ────
-  const pctSlope15m = d.trendSlope * 100;
+  const pctSlope15m = slope15m * 100;
+  const pctSlope5m  = slope5m * 100;
+
+  // Raised threshold: 0.10% (0.0010 fractional)
+  const thresholdVal = 0.10; 
+
   let trend15mLabel = 'SIDEWAYS';
   let trend15mSignal = 'AVOID';
-  if (pctSlope15m > 0.05) {
+  if (pctSlope15m > thresholdVal) {
     trend15mLabel = 'UP';
     trend15mSignal = 'CE';
-  } else if (pctSlope15m > 0.01) {
-    trend15mLabel = 'SLIGHT_UP';
-    trend15mSignal = 'CE';
-  } else if (pctSlope15m < -0.05) {
+  } else if (pctSlope15m < -thresholdVal) {
     trend15mLabel = 'DOWN';
     trend15mSignal = 'PE';
-  } else if (pctSlope15m < -0.01) {
-    trend15mLabel = 'SLIGHT_DOWN';
-    trend15mSignal = 'PE';
   }
-  const trend15m = { label: trend15mLabel, signal: trend15mSignal };
+
+  let trend5mLabel = 'SIDEWAYS';
+  let trend5mSignal = 'AVOID';
+  if (pctSlope5m > thresholdVal) {
+    trend5mLabel = 'UP';
+    trend5mSignal = 'CE';
+  } else if (pctSlope5m < -thresholdVal) {
+    trend5mLabel = 'DOWN';
+    trend5mSignal = 'PE';
+  }
+
+  let confirmed = false;
+  if (trend15mSignal !== 'AVOID') {
+    if (trend15mSignal === trend5mSignal) {
+      confirmed = true;
+      accelerators.push(`5-min slope confirms ${trend15mSignal} bias`);
+      techScore += 3;
+    } else if (trend5mSignal !== 'AVOID') {
+      blockers.push(`5-min slope conflict (${trend5mSignal}) vs 15-min bias (${trend15mSignal})`);
+      techScore -= 4;
+    } else {
+      blockers.push(`5-min slope is sideways — unconfirmed`);
+      techScore -= 2;
+    }
+  }
+
+  const trend15m = { 
+    label: trend15mLabel, 
+    signal: trend15mSignal, 
+    confirmed,
+    trend5m: { label: trend5mLabel, signal: trend5mSignal } 
+  };
   d.trend15mObj = trend15m; // Store it on d for later access at the end of the function
 
   const trend1h = { label: d.hourly_trend === 'Bullish' ? 'UP' : 'DOWN' };
@@ -4528,6 +5035,29 @@ function calculatePreMarketConfidence(d) {
     max:   15,
     note:  scan.summary,
   });
+
+  // ── DIMENSION X: SMC Confluence
+  if (d.smc) {
+    dims.push({
+      name: `SMC Confluence (${d.smc.grade})`,
+      score: d.smc.smcScore,
+      max: 15,
+      note: d.smc.description
+    });
+
+    if (d.smc.finalSignal !== 'AVOID') {
+      if (d.smc.finalSignal === (d.trend15m?.signal || 'AVOID') && d.smc.confidence >= 75) {
+        accelerators.push(`SMC ${d.smc.grade}: ${d.smc.activeSetups[0]}`);
+      } else if (d.smc.finalSignal !== (d.trend15m?.signal || 'AVOID') && d.smc.confidence >= 80) {
+        blockers.push(`SMC warns ${d.smc.finalSignal} — trend conflict`);
+      }
+    }
+
+    const freshSweep = d.smc.raw?.sweeps?.find(s => s.barsAgo <= 1 && s.strength === 'STRONG');
+    if (freshSweep) {
+      accelerators.push(`⚡ STRONG ${freshSweep.type} — highest probability entry`);
+    }
+  }
 
   // ── DIMENSION 9: IV Environment (8 pts) ────────────
   let ivScore = 0;
@@ -4581,7 +5111,11 @@ function calculatePreMarketConfidence(d) {
 
   // ── DIMENSION 13: Advance/Decline Ratio (8 pts) ─────
   let adScore = 0;
-  const adRatio = d.gapUpsCount / (d.gapDownsCount || 1);
+  const isMarketActive = ['JUST_OPENED', 'MARKET_OPEN'].includes(d.phase);
+  const activeAdvCount = isMarketActive && d.advances !== undefined && d.advances > 0 ? d.advances : d.gapUpsCount;
+  const activeDecCount = isMarketActive && d.declines !== undefined && d.declines > 0 ? d.declines : d.gapDownsCount;
+  
+  const adRatio = activeAdvCount / (activeDecCount || 1);
   if (adRatio > 2.0) {
     adScore = 8;
     accelerators.push(`A/D Ratio ${adRatio.toFixed(1)}x — advancing stocks dominate strongly`);
@@ -4592,11 +5126,13 @@ function calculatePreMarketConfidence(d) {
     adScore = adRatio >= 1.0 ? 3 : -3;
   }
   dims.push({ name: 'A/D Ratio', score: adScore, max: 8,
-    note: `A/D: ${d.gapUpsCount}U / ${d.gapDownsCount}D (${adRatio.toFixed(1)}x)` });
+    note: isMarketActive 
+      ? `A/D: ${activeAdvCount} Adv / ${activeDecCount} Dec (${adRatio.toFixed(1)}x)`
+      : `A/D: ${activeAdvCount}U / ${activeDecCount}D (${adRatio.toFixed(1)}x)` });
 
   // ── DIMENSION 14: Sector Rotation (6 pts) ───────────
   let rotationScore = 0;
-  const cyclicLead = d.gapUpsCount > d.gapDownsCount;
+  const cyclicLead = d.isCyclicalLead !== undefined ? d.isCyclicalLead : (activeAdvCount > activeDecCount);
   if (cyclicLead) {
     rotationScore = 6;
     accelerators.push('Cyclical sectors lead rotation — risk-on appetite');
@@ -4605,7 +5141,7 @@ function calculatePreMarketConfidence(d) {
     blockers.push('Defensive rotation or sell-off active — risk-off positioning');
   }
   dims.push({ name: 'Sector Rotation', score: rotationScore, max: 6,
-    note: cyclicLead ? 'Risk-On cyclicals leading' : 'Risk-Off defensives leading' });
+    note: d.sectorRotationNote || (cyclicLead ? 'Risk-On cyclicals leading' : 'Risk-Off defensives leading') });
 
   // ── DIMENSION 15: US Dollar Index (DXY) (8 pts) ─────
   let dxyScore = 0;
@@ -4696,119 +5232,116 @@ function calculatePreMarketConfidence(d) {
   // ── DIMENSION 20: Bollinger + ADX Momentum Confluence (8 pts) ──
   // Layer 2 addition: Bollinger Band position + ADX trend strength combined
   let baScore = 0;
-  const pctB   = d.bollingerPctB  ?? 0.5;  // 0=lower band, 1=upper band
-  const adxVal = d.adxValue       ?? 20;
-  const plusDI = d.adxPlusDI      ?? 20;
-  const minDI  = d.adxMinusDI     ?? 20;
-  const strongTrend = adxVal >= 25;
-  const veryStrongTrend = adxVal >= 40;
+  const pctB   = d.bollingerPctB;  // 0=lower band, 1=upper band
+  const adxVal = d.adxValue;
+  const plusDI = d.adxPlusDI;
+  const minDI  = d.adxMinusDI;
 
-  if (pctB > 0.6 && plusDI > minDI && strongTrend) {
-    baScore = veryStrongTrend ? 8 : 6;
-    accelerators.push(`Price in upper BB (${(pctB * 100).toFixed(0)}%) + ADX ${adxVal} — strong bullish momentum`);
-  } else if (pctB < 0.4 && minDI > plusDI && strongTrend) {
-    baScore = veryStrongTrend ? -8 : -6;
-    blockers.push(`Price in lower BB (${(pctB * 100).toFixed(0)}%) + ADX ${adxVal} — strong bearish momentum`);
-  } else if (pctB < 0.25) {
-    baScore = 3; // oversold — contrarian bounce potential
-    accelerators.push(`BB oversold (${(pctB * 100).toFixed(0)}%ile) — mean-reversion CE setup`);
-  } else if (pctB > 0.75) {
-    baScore = -3; // overbought — late CE entry risk
-    blockers.push(`BB overbought (${(pctB * 100).toFixed(0)}%ile) — avoid chasing CE here`);
+  if (Number.isNaN(pctB) || pctB === undefined || pctB === null || adxVal === 0 || adxVal === undefined || adxVal === null) {
+    dims.push({ name: 'Bollinger+ADX', score: 0, max: 8, note: "Insufficient data" });
   } else {
-    baScore = 0; // mid-range — neutral
+    const strongTrend = adxVal >= 25;
+    const veryStrongTrend = adxVal >= 40;
+    if (pctB > 0.6 && plusDI > minDI && strongTrend) {
+      baScore = veryStrongTrend ? 8 : 6;
+      accelerators.push(`Price in upper BB (${(pctB * 100).toFixed(0)}%) + ADX ${adxVal} — strong bullish momentum`);
+    } else if (pctB < 0.4 && minDI > plusDI && strongTrend) {
+      baScore = veryStrongTrend ? -8 : -6;
+      blockers.push(`Price in lower BB (${(pctB * 100).toFixed(0)}%) + ADX ${adxVal} — strong bearish momentum`);
+    } else if (pctB < 0.25) {
+      baScore = 3; // oversold — contrarian bounce potential
+      accelerators.push(`BB oversold (${(pctB * 100).toFixed(0)}%ile) — mean-reversion CE setup`);
+    } else if (pctB > 0.75) {
+      baScore = -3; // overbought — late CE entry risk
+      blockers.push(`BB overbought (${(pctB * 100).toFixed(0)}%ile) — avoid chasing CE here`);
+    } else {
+      baScore = 0; // mid-range — neutral
+    }
+    dims.push({ name: 'Bollinger+ADX', score: Math.min(8, Math.max(-8, baScore)), max: 8,
+      note: `BB%B ${(pctB * 100).toFixed(0)}% | ADX ${adxVal}` });
   }
-  dims.push({ name: 'Bollinger+ADX', score: Math.min(8, Math.max(-8, baScore)), max: 8,
-    note: `BB%B ${(pctB * 100).toFixed(0)}% | ADX ${adxVal}` });
 
   // ── DIMENSION 21: Stochastic RSI Momentum (6 pts) ───────────
   // Layer 2 addition: Stoch RSI for overbought/oversold confirmation
   let stochScore = 0;
-  const stochRsi = d.stochRsi ?? 50;
-  if (stochRsi < 20) {
-    stochScore = 6;
-    accelerators.push(`Stoch RSI ${stochRsi} — deeply oversold, CE reversal high probability`);
-  } else if (stochRsi < 35) {
-    stochScore = 4;
-    accelerators.push(`Stoch RSI ${stochRsi} — oversold, bullish bias`);
-  } else if (stochRsi > 80) {
-    stochScore = -6;
-    blockers.push(`Stoch RSI ${stochRsi} — deeply overbought, PE or no entry`);
-  } else if (stochRsi > 65) {
-    stochScore = -3;
-    blockers.push(`Stoch RSI ${stochRsi} — overbought, CE entry risky`);
+  const stochRsi = d.stochRsi;
+  if (Number.isNaN(stochRsi) || stochRsi === undefined || stochRsi === null) {
+    dims.push({ name: 'Stoch RSI', score: 0, max: 6, note: "Insufficient data" });
   } else {
-    stochScore = 0; // neutral zone
+    if (stochRsi < 20) {
+      stochScore = 6;
+      accelerators.push(`Stoch RSI ${stochRsi} — deeply oversold, CE reversal high probability`);
+    } else if (stochRsi < 35) {
+      stochScore = 4;
+      accelerators.push(`Stoch RSI ${stochRsi} — oversold, bullish bias`);
+    } else if (stochRsi > 80) {
+      stochScore = -6;
+      blockers.push(`Stoch RSI ${stochRsi} — deeply overbought, PE or no entry`);
+    } else if (stochRsi > 65) {
+      stochScore = -3;
+      blockers.push(`Stoch RSI ${stochRsi} — overbought, CE entry risky`);
+    } else {
+      stochScore = 0; // neutral zone
+    }
+    dims.push({ name: 'Stoch RSI', score: stochScore, max: 6,
+      note: `StochRSI ${stochRsi}` });
   }
-  dims.push({ name: 'Stoch RSI', score: stochScore, max: 6,
-    note: `StochRSI ${stochRsi}` });
 
   // ── TOTAL RAW SCORES ───────────────────────────────
   const totalRaw = dims.reduce((s, d) => s + d.score, 0);
   const maxPossible = dims.reduce((s, d) => s + d.max, 0);
   
-  const ceScore = dims.reduce((s, d) => s + (d.score > 0 ? d.score : 0), 0);
-  const peScore = dims.reduce((s, d) => s + (d.score < 0 ? Math.abs(d.score) : 0), 0);
-  
+  // Determine direction ('CE'/'PE'/'AVOID') from the sign/magnitude of totalRaw
   let direction = 'AVOID';
-  if (totalRaw > 15 && ceScore > peScore * 1.3) {
+  if (totalRaw > 15) {
     direction = 'CE';
-  } else if (totalRaw < -15 && peScore > ceScore * 1.3) {
+  } else if (totalRaw < -15) {
     direction = 'PE';
   } else {
     direction = 'AVOID';
   }
-  
   if (d.majorEventToday) direction = 'AVOID';
   
-  // Direction-aware normalized confidence score (improves score for active setup direction)
-  let score = 50;
-  if (direction === 'CE') {
-    const excess = Math.max(0, totalRaw - 15);
-    score = 50 + Math.min(45, Math.round((excess / 85) * 45));
-  } else if (direction === 'PE') {
-    const excess = Math.max(0, -totalRaw - 15);
-    score = 50 + Math.min(45, Math.round((excess / 85) * 45));
+  // Compute score from totalRaw/maxPossible (normalize to 10-98 range as currently clamped)
+  const normalized = Math.round(((totalRaw + maxPossible) / (2 * maxPossible)) * 88) + 10;
+  let score = Math.min(Math.max(normalized, 10), 98);
+
+  // Apply Special Rule: If a STRONG fresh liquidity sweep (≤ 1 bar ago) is detected, force confidence to ≥ 80 and set direction
+  const freshSweep = d.smc?.raw?.sweeps?.find(s => s.barsAgo <= 1 && s.strength === 'STRONG');
+  if (freshSweep) {
+    direction = freshSweep.signal;
+    score = Math.max(score, 80);
+  }
+
+  let label = 'NEUTRAL — No Edge';
+  let color = '#888888';
+  let recommendation = 'NEUTRAL — No Edge';
+
+  if (direction !== 'AVOID') {
+    if (score < 65) {
+      direction = 'AVOID';
+      score = 0;
+      label = 'NEUTRAL — No Edge';
+      color = '#888888';
+      recommendation = 'NEUTRAL — No Edge';
+    } else {
+      label = score >= 85 ? 'HIGH CONVICTION'
+            : score >= 75 ? 'GOOD SETUP'
+            : 'MONITOR';
+      color = direction === 'CE' ? '#00e676' : '#ff1744';
+      recommendation = direction === 'CE'
+        ? (score >= 85 ? 'STRONG CE ENTRY — Full Position Size Authorized' : score >= 75 ? 'VALID CE SETUP — Standard Position Size' : 'MONITOR CE SETUP — Waiting for Triggers')
+        : (score >= 85 ? 'STRONG PE ENTRY — Full Position Size Authorized' : score >= 75 ? 'VALID PE SETUP — Standard Position Size' : 'MONITOR PE SETUP — Waiting for Triggers');
+    }
   } else {
-    score = Math.max(10, 50 - Math.round(Math.abs(totalRaw) * 2));
+    score = 0;
   }
-
-  // If pattern direction strongly agrees with trend:
-  if (d.scanResultObj && d.trend15mObj) {
-    const scan = d.scanResultObj;
-    const trend15m = d.trend15mObj;
-    if (scan.direction === trend15m.signal && scan.directionConf >= 75) {
-      score += 8;
-      accelerators.push(`${scan.topPattern?.name} confirms direction`);
-    }
-    // If pattern direction opposes trend — reduce conviction:
-    if (scan.direction !== trend15m.signal && scan.direction !== 'AVOID') {
-      score -= 5;
-      blockers.push(`${scan.topPattern?.name} warns of reversal`);
-    }
-  }
-
-  score = Math.min(Math.max(score, 10), 98);
-
-  const label = direction === 'AVOID' ? 'AVOID'
-              : score >= 80 ? 'HIGH CONVICTION'
-              : score >= 65 ? 'GOOD SETUP'
-              : score >= 50 ? 'MODERATE'
-              : 'WEAK';
-  
-  const color = direction === 'CE'    ? '#00FF88'
-              : direction === 'PE'    ? '#FF4444'
-              : score >= 50           ? '#FFB800' : '#666666';
-
-  const recommendation =
-    direction === 'AVOID' ? 'AVOID — Preserving capital, insufficient edge' :
-    direction === 'CE' ? (score >= 80 ? 'STRONG CE ENTRY — Execution Recommended' : 'VALID CE SETUP — Standard Position Size') :
-    (score >= 80 ? 'STRONG PE ENTRY — Execution Recommended' : 'VALID PE SETUP — Standard Position Size');
 
   const factors = dims.map(dim => ({
     name: dim.name,
     note: dim.note,
     pts: Math.abs(dim.score),
+    score: dim.score,
     value: `${dim.score > 0 ? '+' : ''}${dim.score}/${dim.max}`
   }));
 
@@ -4820,7 +5353,9 @@ function calculatePreMarketConfidence(d) {
     recommendation,
     factors,
     blockers,
-    accelerators
+    accelerators,
+    trend15m: d.trend15mObj,
+    majorEventToday: d.majorEventToday
   };
 }
 
@@ -4852,6 +5387,45 @@ function calculateATR(candles, symbol = 'NIFTY', period = 14) {
   const slice = trs.slice(-period);
   const avg = slice.reduce((s, v) => s + v, 0) / slice.length;
   return Math.max(Math.round(avg), fallbackAtr(symbol) / 3); // never trivially small
+}
+
+// Cumulative normal distribution approximation for Black-Scholes
+function normalCDF(x) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.39894228 * Math.exp(-x * x / 2);
+  const p = d * t * (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  return x >= 0 ? 1 - p : p;
+}
+
+// Standard normal probability density function
+function normalPDF(x) {
+  return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+}
+
+// Compute Delta and daily Theta decay using Black-Scholes
+function computeOptionGreeks(type, spot, strike, daysToExpiry, iv) {
+  const T = Math.max(0.5, daysToExpiry) / 365;
+  const sigma = Math.max(5, iv) / 100;
+  const r = 0.07; // 7% standard risk-free rate
+
+  const d1 = (Math.log(spot / strike) + (r + (sigma * sigma) / 2) * T) / (sigma * Math.sqrt(T));
+  const d2 = d1 - sigma * Math.sqrt(T);
+
+  if (type === 'CALL') {
+    const delta = normalCDF(d1);
+    // Theta (annualized)
+    const term1 = -(spot * normalPDF(d1) * sigma) / (2 * Math.sqrt(T));
+    const term2 = -r * strike * Math.exp(-r * T) * normalCDF(d2);
+    const thetaDaily = (term1 + term2) / 365;
+    return { delta: +delta.toFixed(2), theta: +thetaDaily.toFixed(2) };
+  } else {
+    const delta = normalCDF(d1) - 1;
+    // Theta (annualized)
+    const term1 = -(spot * normalPDF(d1) * sigma) / (2 * Math.sqrt(T));
+    const term2 = r * strike * Math.exp(-r * T) * normalCDF(-d2);
+    const thetaDaily = (term1 + term2) / 365;
+    return { delta: +delta.toFixed(2), theta: +thetaDaily.toFixed(2) };
+  }
 }
 
 // Option cards generator — definitive targets & stops
@@ -4941,6 +5515,20 @@ function generateDefinitiveCEPECards(data, confidence) {
 
   const expiry = data.expiry || 'Current Expiry';
 
+  let daysToExpiry = 4.0;
+  if (expiry && expiry !== 'Current Expiry') {
+    const expMs = Date.parse(expiry);
+    if (!isNaN(expMs)) {
+      daysToExpiry = Math.max(0.5, (expMs - Date.now()) / (1000 * 60 * 60 * 24));
+    }
+  }
+
+  const ceIV = data.atmCEiv || data.vix || 15.0;
+  const peIV = data.atmPEiv || data.vix || 15.0;
+
+  const ceGreeks = computeOptionGreeks('CALL', spot, atm, daysToExpiry, ceIV);
+  const peGreeks = computeOptionGreeks('PUT', spot, atm, daysToExpiry, peIV);
+
   const ceCard = {
     type:       'CALL',
     ticker:     `${atm} CE`,
@@ -4982,11 +5570,14 @@ function generateDefinitiveCEPECards(data, confidence) {
     invalidation: `Close below ₹${ceSLSpot.toLocaleString('en-IN')} on 5-min candle`,
 
     premium: {
-      current: data.atmCEpremium || null,
+      current: data.atmCEpremium ? +data.atmCEpremium.toFixed(2) : null,
       sl50pct: data.atmCEpremium
-        ? (data.atmCEpremium * 0.5).toFixed(0)
+        ? +(data.atmCEpremium * 0.5).toFixed(2)
         : null
     },
+
+    iv: ceIV,
+    greeks: ceGreeks,
 
     confidence: bias === 'CE' ? confidence.score : Math.max(10, confidence.score - 30)
   };
@@ -5032,11 +5623,14 @@ function generateDefinitiveCEPECards(data, confidence) {
     invalidation: `Close above ₹${peSLSpot.toLocaleString('en-IN')} on 5-min candle`,
 
     premium: {
-      current: data.atmPEpremium || null,
+      current: data.atmPEpremium ? +data.atmPEpremium.toFixed(2) : null,
       sl50pct: data.atmPEpremium
-        ? (data.atmPEpremium * 0.5).toFixed(0)
+        ? +(data.atmPEpremium * 0.5).toFixed(2)
         : null
     },
+
+    iv: peIV,
+    greeks: peGreeks,
 
     confidence: bias === 'PE' ? confidence.score : Math.max(10, confidence.score - 30)
   };
@@ -5106,8 +5700,8 @@ app.post('/api/premarket/options-entry', async (req, res) => {
   const ticker = getYahooSymbol(symbol);
 
   try {
-    // Concurrent fetch: option chain + FII data + scan + morning data + indicators
-    const [ocData, fiiData, scanData, morningData, indData] = await Promise.allSettled([
+    // Concurrent fetch: option chain + FII data + scan + morning data + indicators + FII Derivatives + All Indices
+    const [ocData, fiiData, scanData, morningData, indData15m, indData5m, indData1m, indData1h, fiiDerivData, indicesData] = await Promise.allSettled([
       fetchOptionChain(symbol),
       (async () => {
         try {
@@ -5174,9 +5768,20 @@ app.post('/api/premarket/options-entry', async (req, res) => {
           };
         }
       })(),
-      axios.get(`http://localhost:5000/api/market-data?ticker=${encodeURIComponent(ticker)}`)
+      axios.get(`http://localhost:5000/api/market-data?ticker=${encodeURIComponent(ticker)}&interval=15m`)
         .then(r => r.data)
-        .catch(() => null)
+        .catch(() => null),
+      axios.get(`http://localhost:5000/api/market-data?ticker=${encodeURIComponent(ticker)}&interval=5m`)
+        .then(r => r.data)
+        .catch(() => null),
+      axios.get(`http://localhost:5000/api/market-data?ticker=${encodeURIComponent(ticker)}&interval=1m`)
+        .then(r => r.data)
+        .catch(() => null),
+      axios.get(`http://localhost:5000/api/market-data?ticker=${encodeURIComponent(ticker)}&interval=1h`)
+        .then(r => r.data)
+        .catch(() => null),
+      getCachedFiiDerivativesData(),
+      fetchAllIndices()
     ]);
 
     const oc = ocData.status === 'fulfilled' ? ocData.value : null;
@@ -5187,7 +5792,24 @@ app.post('/api/premarket/options-entry', async (req, res) => {
       global: { dow: { changePct: 0 }, nasdaq: { changePct: 0 } },
       commodities: { crude: { changePct: 0 } }
     };
-    const ind = indData.status === 'fulfilled' ? indData.value : null;
+    const ind15m = indData15m.status === 'fulfilled' ? indData15m.value : null;
+    const ind5m = indData5m.status === 'fulfilled' ? indData5m.value : null;
+    const ind1m = indData1m.status === 'fulfilled' ? indData1m.value : null;
+    const ind1h = indData1h.status === 'fulfilled' ? indData1h.value : null;
+    const fiiDeriv = fiiDerivData.status === 'fulfilled' ? fiiDerivData.value : null;
+    const indicesList = indicesData.status === 'fulfilled' ? indicesData.value : [];
+    const ind = ind15m;
+
+    const INDEX_NAME_MAP = {
+      'NIFTY': 'NIFTY 50',
+      'BANKNIFTY': 'NIFTY BANK',
+      'FINNIFTY': 'NIFTY FIN SERVICE',
+      'MIDCPNIFTY': 'NIFTY MIDCAP SELECT',
+    };
+    const indexName = INDEX_NAME_MAP[symbol] || 'NIFTY 50';
+    const indexInfo = indicesList.find(idx => idx.name === indexName);
+    const advancesVal = indexInfo?.advances ?? 0;
+    const declinesVal = indexInfo?.declines ?? 0;
 
     const spot = oc?.spot ?? 0;
     const pcr  = oc?.pcr ?? 1.0;
@@ -5230,6 +5852,14 @@ app.post('/api/premarket/options-entry', async (req, res) => {
       ? (ema9List[ema9List.length - 1] - ema9List[ema9List.length - 2]) / (spot || 1)
       : 0;
 
+    // Compute 5m slope trend for confirmation
+    const candles5m = ind5m?.candles ?? [];
+    const closes5m  = candles5m.map(c => c.close || 0).filter(v => v > 0);
+    const ema9List5m = closes5m.length >= 9 ? computeEMA(closes5m, 9) : [];
+    const trendSlopeVal5m = ema9List5m.length >= 2
+      ? (ema9List5m[ema9List5m.length - 1] - ema9List5m[ema9List5m.length - 2]) / (spot || 1)
+      : 0;
+
     // Bollinger Bands (Layer 2)
     const bollinger    = computeBollingerBands(closes, 20, 2);
 
@@ -5266,32 +5896,39 @@ app.post('/api/premarket/options-entry', async (req, res) => {
       pe: { oi: c.put_oi, ltp: c.put_ltp }
     })) || [];
 
-    // Calculate overall signal direction bias: CE (bullish) or PE (bearish)
+    // FIX 5.1: Rebalanced signal weights.
+    // Previously: pre-open signals (gap + FII) = ±2.0 max; technicals = ±1.2 max.
+    // Now: pre-open max = ±3.3; technical max = ±2.5.
+    // All three technicals aligned strongly now CAN flip a moderate pre-open gap.
     let netSignal = 0;
-    if (gapPct > 0.1) netSignal += 1.0;
-    else if (gapPct < -0.1) netSignal -= 1.0;
 
-    if (fii.fii_net > 0) netSignal += 1.0;
-    else if (fii.fii_net < 0) netSignal -= 1.0;
+    // ── Pre-market / global sentiment tier ─────────────────────────────────────
+    if (gapPct > 0.1)  netSignal += 0.75; // was 1.0
+    else if (gapPct < -0.1) netSignal -= 0.75;
 
-    if (morning.global?.dow?.changePct > 0) netSignal += 0.5;
-    if (morning.global?.dow?.changePct < 0) netSignal -= 0.5;
-    if (morning.global?.nasdaq?.changePct > 0) netSignal += 0.5;
-    if (morning.global?.nasdaq?.changePct < 0) netSignal -= 0.5;
+    if (fii.fii_net > 0)  netSignal += 0.75; // was 1.0
+    else if (fii.fii_net < 0) netSignal -= 0.75;
 
-    if (newsSentiment === 'BULLISH') netSignal += 1.0;
-    else if (newsSentiment === 'BEARISH') netSignal -= 1.0;
+    if (morning.global?.dow?.changePct > 0)    netSignal += 0.35; // was 0.5
+    if (morning.global?.dow?.changePct < 0)    netSignal -= 0.35;
+    if (morning.global?.nasdaq?.changePct > 0) netSignal += 0.35; // was 0.5
+    if (morning.global?.nasdaq?.changePct < 0) netSignal -= 0.35;
 
-    if (preopenImbalance > 0) netSignal += 0.5;
-    else if (preopenImbalance < 0) netSignal -= 0.5;
+    if (newsSentiment === 'BULLISH') netSignal += 0.75; // was 1.0
+    else if (newsSentiment === 'BEARISH') netSignal -= 0.75;
 
-    // Additional bias signals from Layer 2
-    if (rsiVal < 45) netSignal += 0.3;
-    else if (rsiVal > 55) netSignal -= 0.3;
-    if (macdHistVal > 0) netSignal += 0.4;
-    else if (macdHistVal < 0) netSignal -= 0.4;
-    if (vwapPosition === 'above') netSignal += 0.5;
-    else if (vwapPosition === 'below') netSignal -= 0.5;
+    if (preopenImbalance > 0)  netSignal += 0.35; // was 0.5
+    else if (preopenImbalance < 0) netSignal -= 0.35;
+
+    // ── Live intraday / technical indicator tier ──────────────────────────────
+    // Weights significantly increased so real-time market state can override
+    // a stale pre-market gap reading after the first 30 minutes.
+    if (rsiVal < 45)  netSignal += 0.75; // was 0.3
+    else if (rsiVal > 55) netSignal -= 0.75;
+    if (macdHistVal > 0)  netSignal += 0.75; // was 0.4
+    else if (macdHistVal < 0) netSignal -= 0.75;
+    if (vwapPosition === 'above') netSignal += 1.0; // was 0.5
+    else if (vwapPosition === 'below') netSignal -= 1.0;
 
     const baseBias = netSignal >= 0 ? 'CE' : 'PE';
 
@@ -5303,12 +5940,54 @@ app.post('/api/premarket/options-entry', async (req, res) => {
     const scoredHeadlines = headlines.map(title => scoreNewsSentiment(title));
     const totalRawNews = scoredHeadlines.reduce((acc, score) => acc + score, 0);
     let newsScore = Math.max(-10, Math.min(10, totalRawNews));
-    if (newsScore === 0) {
-      newsScore = new Date().getMinutes() % 2 === 0 ? 2 : -2;
+    // FIX 5.2: Removed newsScore randomization.
+    // Previously, if newsScore was exactly 0, the system injected ±2 based on
+    // whether the current minute was even or odd — oscillating CE↔PE every 30s
+    // on zero-news days, adding artificial noise to the conviction percentage.
+    // Now newsScore = 0 when genuinely neutral (correct behavior).
+
+    // Genuine Sector Rotation Score calculation
+    let cyclicalChangeSum = 0;
+    let cyclicalCount = 0;
+    let defensiveChangeSum = 0;
+    let defensiveCount = 0;
+
+    const CYCLICALS = ['NIFTY BANK', 'NIFTY IT', 'NIFTY AUTO', 'NIFTY METAL', 'NIFTY REALTY', 'NIFTY ENERGY', 'NIFTY INFRA'];
+    const DEFENSIVES = ['NIFTY FMCG', 'NIFTY PHARMA'];
+
+    indicesList.forEach(idx => {
+      if (CYCLICALS.includes(idx.name)) {
+        cyclicalChangeSum += idx.percentChange ?? 0;
+        cyclicalCount++;
+      } else if (DEFENSIVES.includes(idx.name)) {
+        defensiveChangeSum += idx.percentChange ?? 0;
+        defensiveCount++;
+      }
+    });
+
+    const avgCyclicalChange = cyclicalCount > 0 ? (cyclicalChangeSum / cyclicalCount) : 0;
+    const avgDefensiveChange = defensiveCount > 0 ? (defensiveChangeSum / defensiveCount) : 0;
+
+    let isCyclicalLead = false;
+    let sectorRotationNote = '';
+    if (cyclicalCount > 0 || defensiveCount > 0) {
+      isCyclicalLead = avgCyclicalChange > avgDefensiveChange;
+      sectorRotationNote = isCyclicalLead
+        ? `Risk-On: Cyc (${avgCyclicalChange > 0 ? '+' : ''}${avgCyclicalChange.toFixed(2)}%) outperforming Def (${avgDefensiveChange > 0 ? '+' : ''}${avgDefensiveChange.toFixed(2)}%)`
+        : `Risk-Off: Def (${avgDefensiveChange > 0 ? '+' : ''}${avgDefensiveChange.toFixed(2)}%) outperforming Cyc (${avgCyclicalChange > 0 ? '+' : ''}${avgCyclicalChange.toFixed(2)}%)`;
+    } else {
+      isCyclicalLead = gapPct > 0;
+      sectorRotationNote = isCyclicalLead ? 'Risk-On: Gap-up bias' : 'Risk-Off: Gap-down bias';
     }
+
+    // Compute SMC
+    const smcObj = computeSMCConfluence(ind1m?.candles || [], ind15m?.candles || [], ind1h?.candles || []);
 
     // Calculate confidence score using the full 21-Dimension Engine
     const confidenceObj = calculatePreMarketConfidence({
+      // Sector rotation
+      isCyclicalLead,
+      sectorRotationNote,
       // Layer 7: Global cues
       giftNiftyPremium: gap?.gap_pts ?? 0,
       usFuturesChange: morning.global?.nasdaq?.changePct ?? 0,
@@ -5323,12 +6002,15 @@ app.post('/api/premarket/options-entry', async (req, res) => {
       // Layer 6: FII/DII
       fiiNetCrore: fii.fii_net,
       diiNetCrore: fii.dii_net,
+      fiiIdxFutRatio: fiiDeriv?.idxFutRatio ?? 1.0,
+      fiiStockFutNet: fiiDeriv?.stockFutNet ?? 0,
       // Layer 4: IV environment (derived from VIX rank)
       ivPercentile: Math.min(95, Math.max(5, Math.round((vix - 10) * 5))),
       // Layer 2: Technical indicators (NOW COMPUTED FROM REAL CANDLES)
       rsi15m:     rsiVal,
       macdHist:   macdHistVal,
-      trendSlope: trendSlopeVal,
+      trendSlope15m: trendSlopeVal,
+      trendSlope5m:  trendSlopeVal5m,
       // Layer 1: Pattern engine
       patternSignal: ind?.patterns?.[0]?.signal ?? null,
       patternStrength: ind?.patterns?.[0]?.strength ?? null,
@@ -5355,6 +6037,9 @@ app.post('/api/premarket/options-entry', async (req, res) => {
       dxyChange:   morning.global?.dxy?.changePct ?? 0,
       chinaChange: morning.global?.china?.changePct ?? 0,
       // Layer 5: Market breadth A/D
+      phase:         scan?.phase || 'CLOSED',
+      advances:      advancesVal,
+      declines:      declinesVal,
       gapUpsCount:   scan?.gap_ups?.length ?? 0,
       gapDownsCount: scan?.gap_downs?.length ?? 0,
       newsHeadlines: scan?.news?.headlines ?? [],
@@ -5375,10 +6060,35 @@ app.post('/api/premarket/options-entry', async (req, res) => {
       candles15m: candles,
       newsScore: newsScore,
       macdRising: macdResult.histogram > 0 || (macdResult.macd > macdResult.signal),
-      vwapVal: vwap_val
+      vwapVal: vwap_val,
+      // SMC Engine Integration
+      smc: smcObj
     });
 
-    const bias = confidenceObj.direction;
+    let bias = confidenceObj.direction;
+    const trendResult = calculateRealTrend(candles);
+    const trend15mDir = trendResult.direction; // 'UP', 'DOWN', or 'SIDEWAYS'
+
+    // HARD ASSERTION — block bias mismatches with the 15m trend (Signal Conflict):
+    // FIX 5.3: isConflict was declared here but the probability engine used a
+    // SEPARATE variable `isConflictFlag = false` (always false) at line ~6181,
+    // making the conflict branch permanently dead code. Now isConflict is the
+    // single source of truth used by both the trend-align block and the
+    // probability engine below.
+    let isConflict = false;
+    if (bias !== 'AVOID' && trend15mDir !== 'SIDEWAYS') {
+      const hasFreshSweep = smcObj?.raw?.sweeps?.some(s => s.barsAgo <= 1 && s.strength === 'STRONG');
+      if (((bias === 'CE' && trend15mDir === 'DOWN') || (bias === 'PE' && trend15mDir === 'UP')) && !hasFreshSweep) {
+        isConflict = true; // FIX 5.3: mark conflict before overriding bias direction
+        bias = trend15mDir === 'UP' ? 'CE' : 'PE';
+        confidenceObj.direction = bias;
+        confidenceObj.recommendation = bias === 'CE' ? 'BULLISH SETUP' : 'BEARISH SETUP';
+        confidenceObj.label = 'TREND_ALIGN';
+        console.log(`RESOLVED CONFLICT: 15m Trend (${trend15mDir}) overrides Pre-Market Bias. Aligning bias to ${bias}.`);
+      } else if (hasFreshSweep) {
+        console.log('SMC Fresh Strong Sweep detected: overriding trend conflict block');
+      }
+    }
 
     // Generate definitive option cards
     const step = symbol === 'NIFTY' ? 50 : symbol === 'BANKNIFTY' ? 100 : 100;
@@ -5403,8 +6113,73 @@ app.post('/api/premarket/options-entry', async (req, res) => {
       expiry: oc?.expiry ?? 'Current Expiry',
       atmCEpremium: ceLtp,
       atmPEpremium: peLtp,
-      ema9
+      ema9,
+      atmCEiv: atmRow.call_iv ?? oc?.atmIV ?? 15.0,
+      atmPEiv: atmRow.put_iv ?? oc?.atmIV ?? 15.0,
+      vix
     }, confidenceObj);
+
+    // Calculate key OI levels defensively
+    let keyOILevels = null;
+    const items = oc?.strikewise || [];
+    if (items.length > 0) {
+      const top3CallWall = [...items]
+        .map(s => ({ strike: s.strike, ce_oi: s.ce?.oi || 0 }))
+        .sort((a, b) => b.ce_oi - a.ce_oi)
+        .slice(0, 3);
+
+      const top3PutWall = [...items]
+        .map(s => ({ strike: s.strike, pe_oi: s.pe?.oi || 0 }))
+        .sort((a, b) => b.pe_oi - a.pe_oi)
+        .slice(0, 3);
+
+      const atmStrikeObj = items.find(s => s.isATM) || 
+                           items.reduce((prev, curr) => Math.abs(curr.strike - spot) < Math.abs(prev.strike - spot) ? curr : prev, items[0]);
+
+      const atmStrike = atmStrikeObj ? atmStrikeObj.strike : atm;
+      const atmCeOi = atmStrikeObj ? (atmStrikeObj.ce?.oi || 0) : 0;
+      const atmPeOi = atmStrikeObj ? (atmStrikeObj.pe?.oi || 0) : 0;
+      const atmPcr = atmCeOi > 0 ? +(atmPeOi / atmCeOi).toFixed(2) : 1.0;
+
+      keyOILevels = {
+        top3CallWall,
+        top3PutWall,
+        atmStrike,
+        atmCeOi,
+        atmPeOi,
+        atmPcr
+      };
+    } else {
+      const chainItems = oc?.chain || [];
+      if (chainItems.length > 0) {
+        const top3CallWall = [...chainItems]
+          .map(s => ({ strike: s.strike, ce_oi: s.call_oi || 0 }))
+          .sort((a, b) => b.ce_oi - a.ce_oi)
+          .slice(0, 3);
+
+        const top3PutWall = [...chainItems]
+          .map(s => ({ strike: s.strike, pe_oi: s.put_oi || 0 }))
+          .sort((a, b) => b.pe_oi - a.pe_oi)
+          .slice(0, 3);
+
+        const atmStrikeObj = chainItems.find(s => s.atm) ||
+                             chainItems.reduce((prev, curr) => Math.abs(curr.strike - spot) < Math.abs(prev.strike - spot) ? curr : prev, chainItems[0]);
+
+        const atmStrike = atmStrikeObj ? atmStrikeObj.strike : atm;
+        const atmCeOi = atmStrikeObj ? (atmStrikeObj.call_oi || 0) : 0;
+        const atmPeOi = atmStrikeObj ? (atmStrikeObj.put_oi || 0) : 0;
+        const atmPcr = atmCeOi > 0 ? +(atmPeOi / atmCeOi).toFixed(2) : 1.0;
+
+        keyOILevels = {
+          top3CallWall,
+          top3PutWall,
+          atmStrike,
+          atmCeOi,
+          atmPeOi,
+          atmPcr
+        };
+      }
+    }
 
     // Generate risk flags
     const riskFlags = generateRiskFlags(scan?.news, {
@@ -5415,6 +6190,163 @@ app.post('/api/premarket/options-entry', async (req, res) => {
         usdinr: { changePct: morning.india?.usdinr_change_pct }
       }
     });
+
+    // Calculate directional probability and details
+    let probability = 0;
+    // (isConflict is declared and set in the trend-align block above — no need to re-declare here)
+    // Confluences lists
+    const aligningFactors = [];
+    const missingConfluences = [];
+
+    // FIX 5.3: Use the single `isConflict` variable from the trend-align block
+    // above. The old `const isConflictFlag = false` was always false and caused
+    // the probability engine's conflict branch to be permanently dead code.
+    if (bias !== 'AVOID' && !isConflict) {
+      // Base probability is the confidence score (which is already normalized 10-98)
+      let prob = confidenceObj.score;
+      
+      // NOTE: We check confidenceObj.trend15m.confirmed (slope-based confirmation) for confluence scoring,
+      // which is independent of the calculateRealTrend check used above as a strict Signal Conflict gate.
+      if (confidenceObj.trend15m?.confirmed) {
+        prob += 2;
+        aligningFactors.push("5-min trend confirms 15-min bias direction (Bullish/Bearish slope alignment)");
+      } else {
+        prob -= 5;
+        missingConfluences.push("Lacks 5-min trend confirmation (5m slope is sideways or opposite)");
+      }
+      
+      // 2. Volume surge
+      if (volumeRatio >= 1.5) {
+        prob += 3;
+        aligningFactors.push(`High institutional volume surge: ${volumeRatio.toFixed(1)}x above 20d average`);
+      } else if (volumeRatio >= 1.2) {
+        aligningFactors.push(`Healthy trading volume: ${volumeRatio.toFixed(1)}x above 20d average`);
+      } else if (volumeRatio < 0.8) {
+        prob -= 8;
+        missingConfluences.push(`Thin volume support: only ${volumeRatio.toFixed(1)}x of 20d average (lack of institutional backing)`);
+      } else {
+        missingConfluences.push(`Volume ratio is moderate: ${volumeRatio.toFixed(1)}x of 20d average (needs >1.2x for high-conviction surge)`);
+      }
+      
+      // 3. VWAP Position
+      if (bias === 'CE' && vwapPosition === 'above') {
+        prob += 2;
+        aligningFactors.push("Spot price trading above VWAP (institutional support zone)");
+      } else if (bias === 'PE' && vwapPosition === 'below') {
+        prob += 2;
+        aligningFactors.push("Spot price trading below VWAP (institutional distribution zone)");
+      } else {
+        prob -= 5;
+        const vwapStatus = bias === 'CE' ? 'below' : 'above';
+        missingConfluences.push(`VWAP position opposes bias (price is currently ${vwapStatus} VWAP trigger)`);
+      }
+      
+      // 4. Global cues alignment
+      const isGlobalAligned = (bias === 'CE' && gapPct >= 0) || (bias === 'PE' && gapPct <= 0);
+      if (isGlobalAligned) {
+        prob += 2;
+        aligningFactors.push(`Global cues / GIFT Nifty support active bias (${gapPct > 0 ? '+' : ''}${gapPct.toFixed(2)}% opening gap prediction)`);
+      } else {
+        prob -= 4;
+        missingConfluences.push(`Global sentiment mismatch (GIFT Nifty expects a gap ${bias === 'CE' ? 'down' : 'up'} against active bias)`);
+      }
+
+      // 5. Technical Indicators
+      if (bias === 'CE' && rsiVal < 45) {
+        aligningFactors.push(`RSI (${rsiVal.toFixed(0)}) is oversold/turning up — room to rally`);
+      } else if (bias === 'PE' && rsiVal > 55) {
+        aligningFactors.push(`RSI (${rsiVal.toFixed(0)}) is overbought/turning down — room to drop`);
+      } else if (rsiVal > 65 && bias === 'CE') {
+        prob -= 3;
+        missingConfluences.push(`RSI (${rsiVal.toFixed(0)}) is overbought — risk of late entry pullback`);
+      } else if (rsiVal < 35 && bias === 'PE') {
+        prob -= 3;
+        missingConfluences.push(`RSI (${rsiVal.toFixed(0)}) is oversold — risk of short squeeze bounce`);
+      }
+
+      probability = Math.min(Math.max(prob, 10), 98);
+    } else {
+      probability = 0;
+      if (isConflict) {
+        missingConfluences.push("CRITICAL SIGNAL CONFLICT: Pre-market bias and live 15-min trend direction are in opposition. Bias auto-corrected to trend — confidence score reduced.");
+      } else {
+        missingConfluences.push("Sideways market consolidation: Engine stands down to avoid premium decay.");
+      }
+    }
+    
+    // Strict >= 75% setup check
+    let isHighProbSetup = false;
+    if (
+      bias !== 'AVOID' &&
+      !isConflict &&
+      probability >= 75 &&
+      confidenceObj.trend15m?.confirmed &&
+      volumeRatio >= 1.2 &&
+      ((bias === 'CE' && vwapPosition === 'above') || (bias === 'PE' && vwapPosition === 'below')) &&
+      vix < 22 &&
+      !confidenceObj.majorEventToday
+    ) {
+      isHighProbSetup = true;
+    } else if (bias !== 'AVOID' && !isConflict && probability >= 75) {
+      // Capped because certain critical confluences are missing
+      probability = 74; 
+      if (!confidenceObj.trend15m?.confirmed) missingConfluences.push("Must align 5m trend confirmation to cross 75% accuracy");
+      if (volumeRatio < 1.2) missingConfluences.push("Must see volume surge >= 1.2x for institutional backup confirmation");
+      if (!((bias === 'CE' && vwapPosition === 'above') || (bias === 'PE' && vwapPosition === 'below'))) missingConfluences.push("Price must cross to the favorable side of VWAP zone");
+      if (vix >= 22) missingConfluences.push("India VIX is elevated (>= 22.0) — market volatility is too high for directional option buying");
+    }
+    
+    // Option Card parameters
+    const activeCard = bias === 'CE' ? ceCard : bias === 'PE' ? peCard : null;
+    let setup = null;
+    if (activeCard && bias !== 'AVOID') {
+      const rawPrice = activeCard.recommendedPremium ?? activeCard.premium ?? activeCard.ltp ?? 100;
+      const entryPrice = (rawPrice && typeof rawPrice === 'object') ? (rawPrice.current ?? 100) : (rawPrice ?? 100);
+      setup = {
+        optionName: activeCard.contract || `${symbol} ATM ${bias}`,
+        strike: activeCard.strike || atm,
+        cePremium: ceLtp,
+        pePremium: peLtp,
+        entryPrice: entryPrice,
+        entryRangeMin: Math.round(entryPrice * 0.98),
+        entryRangeMax: Math.round(entryPrice * 1.02),
+        target1: Math.round(entryPrice * 1.20),
+        target2: Math.round(entryPrice * 1.40),
+        stopLoss: Math.round(entryPrice * 0.85),
+        rrRatio: "1 : 1.33 / 1 : 2.67",
+      };
+    }
+
+    const probabilityEngine = {
+      isHighProbSetup,
+      probability,
+      probCE: bias === 'CE' ? probability : Math.round((100 - probability) / 2),
+      probPE: bias === 'PE' ? probability : Math.round((100 - probability) / 2),
+      aligningFactors,
+      missingConfluences,
+      setup,
+    };
+
+    // Calculate divergence between FII cash and FII derivatives segment
+    let fiiDivergence = null;
+    if (fiiDeriv) {
+      const isCashBearish = fii.fii_net < -500;
+      const isCashBullish = fii.fii_net > 500;
+      const isDerivBullish = fiiDeriv.idxFutRatio > 1.1;
+      const isDerivBearish = fiiDeriv.idxFutRatio < 0.9;
+
+      if (isCashBearish && isDerivBullish) {
+        fiiDivergence = {
+          type: 'BULLISH_DIVERGENCE',
+          text: `FII is net selling in Cash segment (-₹${Math.abs(fii.fii_net).toLocaleString('en-IN')} Cr) but holds bullish positioning in Index Futures (Long/Short ratio: ${fiiDeriv.idxFutRatio}). Net derivatives direction is bullish.`
+        };
+      } else if (isCashBullish && isDerivBearish) {
+        fiiDivergence = {
+          type: 'BEARISH_DIVERGENCE',
+          text: `FII is net buying in Cash segment (+₹${fii.fii_net.toLocaleString('en-IN')} Cr) but holds bearish positioning in Index Futures (Long/Short ratio: ${fiiDeriv.idxFutRatio}). Net derivatives direction is bearish.`
+        };
+      }
+    }
 
     res.json({
       symbol,
@@ -5430,7 +6362,21 @@ app.post('/api/premarket/options-entry', async (req, res) => {
       pe: peCard,
       riskFlags,
       pcr,
+      probability,
+      probabilityEngine,
+      keyOILevels,
+      fiiDerivatives: fiiDeriv,
+      fiiDivergence,
+      fiiCashNet: fii.fii_net,
+      diiCashNet: fii.dii_net,
       fetched_at: new Date().toISOString(),
+      rsi15m: rsiVal,
+      macdHist: macdHistVal,
+      vix,
+      vwapPosition,
+      trend15m: confidenceObj.trend15m,
+      // Pass SMC object to frontend
+      smc: smcObj
     });
 
   } catch (err) {
@@ -5599,6 +6545,12 @@ Respond ONLY in this exact JSON format, no markdown:
 });
 
 // ── SSE Live Stream ──────────────────────────────────────────────────────────
+// FIX 4.1: Per-symbol option-chain cache for the SSE live-stream.
+// Fetching a full 150-row option chain on every 2s tick was causing
+// excessive NSE API pressure and ECONNRESET risk during high-traffic periods.
+// The cache serves the last known OC for 15 seconds between fresh fetches.
+const liveStreamOCCache = {}; // { [symbol]: { data, ts } }
+
 // Clients connect to /api/live-stream and receive JSON events every 2 seconds.
 app.get('/api/live-stream', async (req, res) => {
   const symbol = (req.query.symbol || 'NIFTY').toUpperCase();
@@ -5613,7 +6565,18 @@ app.get('/api/live-stream', async (req, res) => {
     try {
       const mkt   = getMarketStatus();
       const quote = await fetchNSEQuote(symbol);
-      const oc    = await fetchOptionChain(symbol);
+
+      // FIX 4.1: Use cached OC if it was fetched within the last 15 seconds.
+      // A fresh OC fetch on every 2s tick was the rate-limit bottleneck.
+      const now = Date.now();
+      const ocEntry = liveStreamOCCache[symbol];
+      let oc;
+      if (ocEntry && (now - ocEntry.ts) < 15_000) {
+        oc = ocEntry.data;
+      } else {
+        oc = await fetchOptionChain(symbol);
+        liveStreamOCCache[symbol] = { data: oc, ts: now };
+      }
 
       const payload = {
         ts:      Date.now(),
@@ -5634,7 +6597,14 @@ app.get('/api/live-stream', async (req, res) => {
   // Send immediately, then every 2 seconds
   await sendEvent();
   const mkt = getMarketStatus();
-  const delay = mkt.status === 'OPEN' ? 2000 : 30_000;
+  const mockPhase = req.query.mockPhase || req.query.phase;
+  const isPreOpen = mockPhase ? ['ORDER_ENTRY', 'IEP_CALCULATION', 'BUFFER'].includes(mockPhase) : (() => {
+    const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const h = ist.getHours();
+    const m = ist.getMinutes();
+    return (h === 9 && m < 15);
+  })();
+  const delay = (mkt.status === 'OPEN' || isPreOpen || mockPhase) ? 2000 : 30_000;
   const interval = setInterval(sendEvent, delay);
 
   req.on('close', () => {

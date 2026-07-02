@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # 1. Flask Backend Service (Trading logic, Database, Indicators)
+  flask-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.flask
+    container_name: flask-backend
+    restart: always
+    volumes:
+      # Mount backend folder to persist SQLite databases (trade_journal.db, journal.db, etc.)
+      - ./backend:/app/backend
+      - ./data:/app/data
+    environment:
+      - PORT=5000
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "5000:5000"
+
+  # 2. Node.js Proxy Service (NSE Scrapes, Option Chain SSE, WebSockets)
+  node-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    container_name: node-proxy
+    restart: always
+    environment:
+      - PORT=3001
+    ports:
+      - "3001:3001"
+
+  # 3. Nginx Frontend Service (Static files server and Reverse Proxy gateway)
+  frontend-nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: frontend-nginx
+    restart: always
+    ports:
+      - "8501:8501"
+    depends_on:
+      - flask-backend
+      - node-proxy

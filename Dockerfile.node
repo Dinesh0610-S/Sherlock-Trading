@@ -1,0 +1,18 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy dependency manifests
+COPY package*.json ./
+
+# Install dependencies (production only for speed and size)
+RUN npm ci --only=production
+
+# Copy server code and utility files needed by server.js
+COPY server.js ./
+COPY src/utils/patternEngine.js ./src/utils/patternEngine.js
+COPY src/utils/smcEngine.js ./src/utils/smcEngine.js
+
+EXPOSE 3001
+
+CMD ["node", "server.js"]
